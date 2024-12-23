@@ -3,6 +3,7 @@ package burp;
 import burp.api.montoya.BurpExtension;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.core.ToolType;
+import burp.api.montoya.extension.ExtensionUnloadingHandler;
 import burp.api.montoya.http.handler.*;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
@@ -14,13 +15,14 @@ import burp.config.ExtensionConfig;
 import burp.core.TaskRepository;
 import burp.core.ScannerBuilder;
 
-import javax.swing.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
+
+import javax.swing.JMenu;
+import javax.swing.JMenuItem;
 
 import static burp.utils.Constants.SETTING_BURP_PASSIVE;
 import static burp.utils.Constants.SETTING_VERBOSE_LOGGING;
@@ -30,7 +32,6 @@ public class BurpExtender implements BurpExtension {
     private static final ExecutorServiceManager executorServiceManager = ExecutorServiceManager.getInstance();
     private static final TaskRepository taskRepository = TaskRepository.getInstance();
     private static final ExtensionConfig extensionConfig = ExtensionConfig.getInstance();
-    private static boolean loaded = true;
     public static final String EXTENSION_NAME = "JS Miner-NG";
     private static final String EXTENSION_VERSION = "2.0";
     private int taskCount = 0;
@@ -42,7 +43,19 @@ public class BurpExtender implements BurpExtension {
         
         // Initialize components
         TaskRepository.setApi(api);
-        Utilities.setApi(api);
+
+
+        // Register unloading handler
+        api.extension().registerUnloadingHandler(new ExtensionUnloadingHandler() {
+            @Override
+            public void extensionUnloaded() {
+                taskRepository.destroy();
+                api.logging().logToOutput("Sending shutdown signal to terminate any running threads...");
+                executorServiceManager.getExecutorService().shutdownNow();
+                api.logging().logToOutput("Extension was unloaded");
+                api.logging().logToOutput("=================================================");
+            }
+        });
         
         // Register context menu
         api.userInterface().registerContextMenuItemsProvider(this::createMenuItems);
@@ -101,30 +114,31 @@ public class BurpExtender implements BurpExtension {
                 
             return menuItems;
         }
-        r
 
-    private void runAutoMine(List<HttpRequestResponse> messages) {
-        new Thread(() -> {
-            long ts = Instant.now().toEpochMilli();
-            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
-                .runAllPassiveScans()
-                .taskId(++taskCount)
-                .timeStamp(ts)
-                .build();
-            scannerBuilder.runScans();
-        }).start();
-    }
+        private void runAutoMine(List<HttpRequestResponse> messages) {
+            new Thread(() -> {
+                long ts = Instant.now().toEpochMilli();
+                ScannerBuilder scannerBuilder = new ScannerBuilder.Builder()
+                    .withHttpRequestResponses(messages)
+                    .runAllPassiveScans()
+                    .taskId(++taskCount)
+                    .timeStamp(ts)
+                    .build();
+                scannerBuilder.runScans();
+            }).start();
+        }
 
-    private void doPassiveScan(HttpResponseReceived response) {
-        new Thread(() -> {
-            long ts = Instant.now().toEpochMilli();
-            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(response)
+        private void doPassiveScan(HttpResponseReceived response) {
+            new Thread(() -> {
+                long ts = Instant.now().toEpochMilli();
+                ScannerBuilder scannerBuilder = new ScannerBuilder.Builder()
+                    .withHttpResponse(response)
                     .runAllPassiveScans()
                     .timeStamp(ts)
                     .build();
-            scannerBuilder.runScans();
-        }).start();
-    }
+                scannerBuilder.runScans();
+            }).start();
+        }
 
     private void updateExtensionConfig() {
         api.extension().saveSetting(SETTING_VERBOSE_LOGGING, String.valueOf(extensionConfig.isVerboseLogging()));
@@ -140,15 +154,6 @@ public class BurpExtender implements BurpExtension {
             extensionConfig.setPassiveEnabled(Boolean.parseBoolean(api.extension().loadSetting(SETTING_BURP_PASSIVE)));
         }
 
-    }
-
-    @Override
-    public void extensionUnloaded() {
-        taskRepository.destroy();
-        api.logging().logToOutput("Sending shutdown signal to terminate any running threads...");
-        executorServiceManager.getExecutorService().shutdownNow();
-        api.logging().logToOutput("Extension was unloaded");
-        api.logging().logToOutput("=================================================");
     }
 
 
@@ -340,7 +345,7 @@ public class BurpExtender implements BurpExtension {
             .action(e -> {
                 new Thread(() -> {
                     long ts = Instant.now().toEpochMilli();
-                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(api, messages.toArray(new HttpRequestResponse[0]))
                         .runAllPassiveScans()
                         .taskId(++taskCount)
                         .timeStamp(ts)
@@ -353,77 +358,43 @@ public class BurpExtender implements BurpExtension {
         // JS source mapper
         // Source Mapper
         menuItems.add(MenuItem.builder()
-            .action(e -> {
-                new Thread(() -> {
-                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
-                        .scanSourceMapFiles()
-                        .taskId(++taskCount)
-                        .build();
-                    scannerBuilder.runScans();
-                }).start();
-            })
             .text("JS source mapper (active)")
-            .build());
-            
-        // Secrets scan
-        menuItems.add(MenuItem.builder()
             .action(e -> {
                 new Thread(() -> {
-                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
-                        .scanSecrets()
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(api, messages.toArray(new HttpRequestResponse[0]))
+                        .scanSourceMapper()
                         .taskId(++taskCount)
                         .build();
                     scannerBuilder.runScans();
                 }).start();
             })
-            .text("Secrets")
             .build());
             
-        // Dependency Confusion
+              // Add other scan items using the same pattern
+              addScanMenuItem(menuItems, "Secrets", messages, ScannerBuilder.Builder::scanSecrets);
+              addScanMenuItem(menuItems, "Dependency Confusion", messages, ScannerBuilder.Builder::scanDependencyConfusion);
+              addScanMenuItem(menuItems, "SubDomains", messages, ScannerBuilder.Builder::scanSubdomains);
+              addScanMenuItem(menuItems, "Cloud URLs", messages, ScannerBuilder.Builder::scanCloudURLs);
+              addScanMenuItem(menuItems, "Inline B64 JS Source Maps", messages, b -> b.scanSourceMapper().timeStamp(Instant.now().toEpochMilli()));
+              addScanMenuItem(menuItems, "Dump Static Files", messages, b -> b.dumpStaticFiles().timeStamp(Instant.now().toEpochMilli()));
+              addScanMenuItem(menuItems, "API Endpoints Finder", messages, ScannerBuilder.Builder::scanEndpoints);
+              
+              return menuItems;
+        }
+
+    private void addScanMenuItem(List<MenuItem> menuItems, String text, List<HttpRequestResponse> messages, 
+            Function<ScannerBuilder.Builder, ScannerBuilder.Builder> scanType) {
         menuItems.add(MenuItem.builder()
+            .text(text)
             .action(e -> {
                 new Thread(() -> {
-                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
-                        .scanDependencyConfusion()
+                    ScannerBuilder scannerBuilder = scanType.apply(new ScannerBuilder.Builder(api, messages.toArray(new HttpRequestResponse[0])))
                         .taskId(++taskCount)
                         .build();
                     scannerBuilder.runScans();
                 }).start();
             })
-            .text("Dependency Confusion")
             .build());
-            
-        // SubDomains
-        menuItems.add(MenuItem.builder()
-            .text("SubDomains")
-            .action(e -> runScan(messages, ScannerBuilder.Builder::scanSubDomains))
-            .build());
-            
-        // Cloud URLs
-        menuItems.add(MenuItem.builder()
-            .text("Cloud URLs")
-            .action(e -> runScan(messages, ScannerBuilder.Builder::scanCloudURLs))
-            .build());
-            
-        // Inline Source Maps
-        menuItems.add(MenuItem.builder()
-            .text("Inline B64 JS Source Maps")
-            .action(e -> runScan(messages, ScannerBuilder.Builder::scanInlineSourceMapFiles))
-            .build());
-            
-        // Dump Static Files
-        menuItems.add(MenuItem.builder()
-            .text("Dump Static Files")
-            .action(e -> runScan(messages, ScannerBuilder.Builder::dumpStaticFiles))
-            .build());
-            
-        // API Endpoints Finder
-        menuItems.add(MenuItem.builder()
-            .text("API Endpoints Finder")
-            .action(e -> runScan(messages, ScannerBuilder.Builder::endpointsFinder))
-            .build());
-            
-        return menuItems;
     }
 
     private void runScan(List<HttpRequestResponse> messages, Function<ScannerBuilder.Builder, ScannerBuilder.Builder> scanType) {
