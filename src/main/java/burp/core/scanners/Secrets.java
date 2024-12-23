@@ -1,6 +1,8 @@
 package burp.core.scanners;
 
-import burp.*;
+import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.http.message.responses.HttpResponse;
+import burp.BurpExtender;
 import burp.utils.Utilities;
 
 import java.nio.charset.StandardCharsets;
@@ -13,37 +15,34 @@ import static burp.utils.Constants.*;
 import static burp.utils.Utilities.*;
 
 public class Secrets implements Runnable {
-    private static final IBurpExtenderCallbacks callbacks = BurpExtender.getCallbacks();
-    private static final IExtensionHelpers helpers = callbacks.getHelpers();
-    private final IHttpRequestResponse baseRequestResponse;
+    private final HttpRequestResponse requestResponse;
     private final UUID taskUUID;
 
-    public Secrets(IHttpRequestResponse baseRequestResponse, UUID taskUUID) {
-        this.baseRequestResponse = baseRequestResponse;
+    public Secrets(HttpRequestResponse requestResponse, UUID taskUUID) {
+        this.requestResponse = requestResponse;
         this.taskUUID = taskUUID;
     }
 
     @Override
     public void run() {
         BurpExtender.getTaskRepository().startTask(taskUUID);
-        String responseString = new String(baseRequestResponse.getResponse());
-        String responseBodyString = responseString.substring(helpers.analyzeResponse(baseRequestResponse.getResponse()).getBodyOffset());
+        HttpResponse response = requestResponse.response();
+        String responseBodyString = response.bodyToString();
 
         // Combined secrets
-        Matcher matcherSecrets = SECRETS_REGEX.matcher(responseBodyString);
-        // For reporting unique matches with markers
         List<byte[]> uniqueMatchesLow = new ArrayList<>();
         StringBuilder uniqueMatchesSBLow = new StringBuilder();
 
         List<byte[]> uniqueMatchesHigh = new ArrayList<>();
         StringBuilder uniqueMatchesSBHigh = new StringBuilder();
+
+        // Process secrets regex matches
+        Matcher matcherSecrets = SECRETS_REGEX.matcher(responseBodyString);
         while (matcherSecrets.find() && BurpExtender.isLoaded()) {
-            if (Utilities.isHighEntropy(matcherSecrets.group(20))) { // group(20) matches our secret
-                // if high entropy, confidence is "Firm"
+            if (Utilities.isHighEntropy(matcherSecrets.group(20))) {
                 uniqueMatchesHigh.add(matcherSecrets.group().getBytes(StandardCharsets.UTF_8));
                 appendFoundMatches(matcherSecrets.group(), uniqueMatchesSBHigh);
             } else {
-                // if low entropy, confidence is "Tentative"
                 if (isNotFalsePositive(matcherSecrets.group(20))) {
                     uniqueMatchesLow.add(matcherSecrets.group().getBytes(StandardCharsets.UTF_8));
                     appendFoundMatches(matcherSecrets.group(), uniqueMatchesSBLow);
@@ -51,51 +50,67 @@ public class Secrets implements Runnable {
             }
         }
 
-        // http basic auth secrets
+        // Process HTTP basic auth secrets
         Matcher httpBasicAuthMatcher = HTTP_BASIC_AUTH_SECRETS.matcher(responseBodyString);
         if (httpBasicAuthMatcher.find()) {
-            String base64String = httpBasicAuthMatcher.group(2); // basic auth secret is in group(2)
-
-            // checks if secret is a valid base64 & of high entropy
+            String base64String = httpBasicAuthMatcher.group(2);
             if (isValidBase64(base64String) && Utilities.isHighEntropy(Utilities.b64Decode(base64String))) {
                 uniqueMatchesHigh.add(httpBasicAuthMatcher.group().getBytes(StandardCharsets.UTF_8));
                 appendFoundMatches(httpBasicAuthMatcher.group(), uniqueMatchesSBHigh);
             } else {
-                // otherwise, report it anyway (as Low)
                 uniqueMatchesLow.add(httpBasicAuthMatcher.group().getBytes(StandardCharsets.UTF_8));
                 appendFoundMatches(httpBasicAuthMatcher.group(), uniqueMatchesSBLow);
             }
         }
 
-        reportFinding(baseRequestResponse, uniqueMatchesSBLow, uniqueMatchesLow, uniqueMatchesSBHigh, uniqueMatchesHigh);
-
+        reportFinding(requestResponse, uniqueMatchesSBLow, uniqueMatchesLow, uniqueMatchesSBHigh, uniqueMatchesHigh);
         BurpExtender.getTaskRepository().completeTask(taskUUID);
     }
 
-    private static void reportFinding(IHttpRequestResponse baseRequestResponse, StringBuilder uniqueMatchesSBLow, List<byte[]> uniqueMatchesLow,
+    private static void reportFinding(HttpRequestResponse requestResponse, StringBuilder uniqueMatchesSBLow, List<byte[]> uniqueMatchesLow,
                                       StringBuilder uniqueMatchesSBHigh, List<byte[]> uniqueMatchesHigh) {
         if (uniqueMatchesSBHigh.length() > 0) {
-            List<int[]> secretsMatchesHigh = getMatches(baseRequestResponse.getResponse(), uniqueMatchesHigh);
-            sendNewIssue(baseRequestResponse,
+            List<int[]> secretsMatchesHigh = getMatches(requestResponse.response().body(), uniqueMatchesHigh);
+            AuditIssue.AuditIssueSeverity severity = AuditIssue.AuditIssueSeverity.MEDIUM;
+            AuditIssue.AuditIssueConfidence confidence = AuditIssue.AuditIssueConfidence.FIRM;
+            
+            AuditIssue issue = AuditIssue.auditIssue(
                     "[JS Miner] Secrets / Credentials",
                     "The following secrets (with High entropy) were found in a static file.",
+                    "High entropy strings that match common secret patterns were identified in the response. " +
+                    "These could represent hardcoded credentials or API keys.",
+                    requestResponse.request().url(),
+                    severity,
+                    confidence,
+                    "Review the identified strings and ensure no sensitive data is exposed.",
                     uniqueMatchesSBHigh.toString(),
-                    secretsMatchesHigh,
-                    SEVERITY_MEDIUM,
-                    CONFIDENCE_FIRM
+                    "Remove any hardcoded secrets from the code and store them securely.",
+                    List.of(requestResponse)
             );
+            
+            BurpExtender.api.siteMap().add(issue);
         }
 
         if (uniqueMatchesSBLow.length() > 0) {
-            List<int[]> secretsMatchesLow = getMatches(baseRequestResponse.getResponse(), uniqueMatchesLow);
-            sendNewIssue(baseRequestResponse,
+            List<int[]> secretsMatchesLow = getMatches(requestResponse.response().body(), uniqueMatchesLow);
+            AuditIssue.AuditIssueSeverity severity = AuditIssue.AuditIssueSeverity.MEDIUM;
+            AuditIssue.AuditIssueConfidence confidence = AuditIssue.AuditIssueConfidence.TENTATIVE;
+            
+            AuditIssue issue = AuditIssue.auditIssue(
                     "[JS Miner] Secrets / Credentials",
                     "The following secrets (with Low entropy) were found in a static file.",
+                    "Potential secrets matching common patterns were identified in the response. " +
+                    "These could represent hardcoded credentials or configuration values.",
+                    requestResponse.request().url(),
+                    severity,
+                    confidence,
+                    "Review the identified strings to determine if they contain sensitive data.",
                     uniqueMatchesSBLow.toString(),
-                    secretsMatchesLow,
-                    SEVERITY_MEDIUM,
-                    CONFIDENCE_TENTATIVE
+                    "If confirmed as secrets, remove them from the code and store them securely.",
+                    List.of(requestResponse)
             );
+            
+            BurpExtender.api.siteMap().add(issue);
         }
     }
 

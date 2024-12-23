@@ -1,5 +1,12 @@
 package burp;
 
+import burp.api.montoya.BurpExtension;
+import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.core.ToolType;
+import burp.api.montoya.http.handler.*;
+import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.scanner.audit.issues.AuditIssue;
+import burp.api.montoya.ui.contextmenu.*;
 import burp.config.ExecutorServiceManager;
 import burp.config.ExtensionConfig;
 import burp.core.TaskRepository;
@@ -8,114 +15,99 @@ import burp.core.ScannerBuilder;
 import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.io.PrintWriter;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Arrays;
 
 import static burp.utils.Constants.SETTING_BURP_PASSIVE;
 import static burp.utils.Constants.SETTING_VERBOSE_LOGGING;
 
-public class BurpExtender implements IBurpExtender, IContextMenuFactory, IExtensionStateListener, IScannerCheck {
-    private static IBurpExtenderCallbacks callbacks;
-    private static IExtensionHelpers helpers;
+public class BurpExtender implements BurpExtension {
+    public static MontoyaApi api;
     private static final ExecutorServiceManager executorServiceManager = ExecutorServiceManager.getInstance();
     private static final TaskRepository taskRepository = TaskRepository.getInstance();
     private static final ExtensionConfig extensionConfig = ExtensionConfig.getInstance();
     private static boolean loaded = true;
-    public static PrintWriter mStdOut;
-    public static PrintWriter mStdErr;
-    public static final String EXTENSION_NAME = "JS Miner";
-    private static final String EXTENSION_VERSION = "1.16";
-    private int taskCount = 0; // counter for invoked tasks through the menu items context (Not for Burp's passive scan)
-
-    // Exposing callbacks for use in other classes
-    public static IBurpExtenderCallbacks getCallbacks() {
-        return callbacks;
-    }
-
-    public static IExtensionHelpers getHelpers() {
-        return helpers;
-    }
-
-    public static boolean isLoaded() {
-        return loaded;
-    }
-
-    public static void setLoaded(boolean loaded) {
-        BurpExtender.loaded = loaded;
-    }
-
-    public static ExecutorServiceManager getExecutorServiceManager() {
-        return executorServiceManager;
-    }
-
-    public static TaskRepository getTaskRepository() {
-        return taskRepository;
-    }
-
-    public static ExtensionConfig getExtensionConfig() {
-        return extensionConfig;
-    }
-
-
+    public static final String EXTENSION_NAME = "JS Miner-NG";
+    private static final String EXTENSION_VERSION = "2.0";
+    private int taskCount = 0;
 
     @Override
-    public void registerExtenderCallbacks(IBurpExtenderCallbacks callbacks) {
-        BurpExtender.callbacks = callbacks;
-        // Extension initializations
-        helpers = callbacks.getHelpers();
-        callbacks.setExtensionName(EXTENSION_NAME);
-        callbacks.registerContextMenuFactory(this);
-        callbacks.registerExtensionStateListener(this);
+    public void initialize(MontoyaApi api) {
+        BurpExtender.api = api;
+        
+        // Register extension
+        api.extension().setName(EXTENSION_NAME);
+        
+        // Register context menu
+        api.userInterface().registerContextMenuItemsProvider(this::createMenuItems);
+        
+        // Register HTTP handler for passive scanning
+        api.http().registerHttpHandler(new HttpHandler() {
+            @Override
+            public RequestToBeSentAction handleHttpRequestToBeSent(HttpRequestToBeSent requestToBeSent) {
+                return RequestToBeSentAction.continueWith(requestToBeSent);
+            }
 
-        // register ourselves as a custom scanner check
-        callbacks.registerScannerCheck(this);
+            @Override
+            public ResponseReceivedAction handleHttpResponseReceived(HttpResponseReceived responseReceived) {
+                if (extensionConfig.isPassiveEnabled()) {
+                    doPassiveScan(responseReceived);
+                }
+                return ResponseReceivedAction.continueWith(responseReceived);
+            }
+        });
 
-        // obtain our output and error streams
-        mStdOut = new PrintWriter(callbacks.getStdout(), true);
-        mStdErr = new PrintWriter(callbacks.getStderr(), true);
+        // Log extension load
+        api.logging().logToOutput("[*] Loaded:\t" + EXTENSION_NAME + " v" + EXTENSION_VERSION);
+        api.logging().logToOutput("[*] Original Author:\tMina M. Edwar (minamo7sen@gmail.com)");
+        api.logging().logToOutput("[*] Forked by:\tpedro (slicingmelon)");
+        api.logging().logToOutput("=================================================");
 
-        mStdOut.println("[*] Loaded:\t" + EXTENSION_NAME + " v" + EXTENSION_VERSION);
-        mStdOut.println("[*] Author:\tMina M. Edwar (minamo7sen@gmail.com)");
-        mStdOut.println("=================================================");
-
-        // Load extension configurations
         loadExtensionConfig();
+    }
 
+    private void doPassiveScan(HttpResponseReceived response) {
+        new Thread(() -> {
+            long ts = Instant.now().toEpochMilli();
+            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(response)
+                    .runAllPassiveScans()
+                    .timeStamp(ts)
+                    .build();
+            scannerBuilder.runScans();
+        }).start();
     }
 
     private void updateExtensionConfig() {
-        callbacks.saveExtensionSetting(SETTING_VERBOSE_LOGGING, String.valueOf(extensionConfig.isVerboseLogging()));
-        callbacks.saveExtensionSetting(SETTING_BURP_PASSIVE, String.valueOf(extensionConfig.isPassiveEnabled()));
+        api.extension().saveSetting(SETTING_VERBOSE_LOGGING, String.valueOf(extensionConfig.isVerboseLogging()));
+        api.extension().saveSetting(SETTING_BURP_PASSIVE, String.valueOf(extensionConfig.isPassiveEnabled()));
     }
 
     public void loadExtensionConfig() {
-        if (callbacks.loadExtensionSetting(SETTING_VERBOSE_LOGGING) != null) {
-            extensionConfig.setVerboseLogging(Boolean.parseBoolean(callbacks.loadExtensionSetting(SETTING_VERBOSE_LOGGING)));
+        if (api.extension().loadSetting(SETTING_VERBOSE_LOGGING) != null) {
+            extensionConfig.setVerboseLogging(Boolean.parseBoolean(api.extension().loadSetting(SETTING_VERBOSE_LOGGING)));
         }
 
-        if (callbacks.loadExtensionSetting(SETTING_BURP_PASSIVE) != null) {
-            extensionConfig.setPassiveEnabled(Boolean.parseBoolean(callbacks.loadExtensionSetting(SETTING_BURP_PASSIVE)));
+        if (api.extension().loadSetting(SETTING_BURP_PASSIVE) != null) {
+            extensionConfig.setPassiveEnabled(Boolean.parseBoolean(api.extension().loadSetting(SETTING_BURP_PASSIVE)));
         }
 
     }
-
 
     @Override
     public void extensionUnloaded() {
         setLoaded(false);
         taskRepository.destroy();
-        mStdOut.println("[*] Sending shutdown signal to terminate any running threads..");
+        api.logging().logToOutput("[*] Sending shutdown signal to terminate any running threads..");
         executorServiceManager.getExecutorService().shutdownNow();
-        mStdOut.println("[*] Extension was unloaded.");
-        mStdOut.println("=================================================");
+        api.logging().logToOutput("[*] Extension was unloaded.");
+        api.logging().logToOutput("=================================================");
     }
 
     /*
      *  Context menu items
      */
-    @Override
     public List<JMenuItem> createMenuItems(IContextMenuInvocation invocation) {
         List<JMenuItem> items = new ArrayList<>();
         JMenu scanItems = new JMenu("Scans");
@@ -425,13 +417,13 @@ public class BurpExtender implements IBurpExtender, IContextMenuFactory, IExtens
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            mStdOut.println("[=============== Tasks Summary =============]");
-            mStdOut.println("Total Tasks: " + getTaskRepository().getSize());
-            mStdOut.println("Queued tasks: " + taskRepository.getQueuedTasks().size());
-            mStdOut.println("Completed tasks: " + taskRepository.getCompletedTasks().size());
-            mStdOut.println("Running tasks: " + taskRepository.getRunningTasks().size());
-            mStdOut.println("Failed tasks: " + taskRepository.getFailedTasks().size());
-            mStdOut.println("============================================");
+            api.logging().logToOutput("[=============== Tasks Summary =============]");
+            api.logging().logToOutput("Total Tasks: " + getTaskRepository().getSize());
+            api.logging().logToOutput("Queued tasks: " + taskRepository.getQueuedTasks().size());
+            api.logging().logToOutput("Completed tasks: " + taskRepository.getCompletedTasks().size());
+            api.logging().logToOutput("Running tasks: " + taskRepository.getRunningTasks().size());
+            api.logging().logToOutput("Failed tasks: " + taskRepository.getFailedTasks().size());
+            api.logging().logToOutput("============================================");
         }
     }
 
@@ -439,20 +431,20 @@ public class BurpExtender implements IBurpExtender, IContextMenuFactory, IExtens
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            mStdOut.println("[=============== Uncompleted Tasks =============]");
+            api.logging().logToOutput("[=============== Uncompleted Tasks =============]");
 
             int runningTasksSize = taskRepository.getRunningTasks().size();
             // If there was some timed out tasks, print them for troubleshooting or local checking
             if (runningTasksSize > 0) {
-                mStdOut.println("Running tasks:" + taskRepository.printRunningTasks().toString());
-                mStdOut.println("=============================================");
+                api.logging().logToOutput("Running tasks:" + taskRepository.printRunningTasks().toString());
+                api.logging().logToOutput("=============================================");
             }
 
             int failedTasksSize = taskRepository.getFailedTasks().size();
             // If there was some timed out tasks, print them for troubleshooting or local checking
             if (failedTasksSize > 0) {
-                mStdOut.println("Failed tasks:" + taskRepository.printFailedTasks().toString());
-                mStdOut.println("=============================================");
+                api.logging().logToOutput("Failed tasks:" + taskRepository.printFailedTasks().toString());
+                api.logging().logToOutput("=============================================");
             }
         }
     }
