@@ -1,7 +1,9 @@
 package burp.core.scanners;
 
-import burp.*;
-import burp.utils.Utilities;
+import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.utils.CustomScanIssue;
+import burp.core.TaskRepository;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -11,72 +13,87 @@ import com.google.re2j.Matcher;
 import com.google.re2j.Pattern;
 
 import static burp.utils.Constants.*;
-import static burp.utils.Utilities.appendFoundMatches;
-import static burp.utils.Utilities.sendNewIssue;
 
 public class SubDomains implements Runnable {
-    private static final IBurpExtenderCallbacks callbacks = BurpExtender.getCallbacks();
-    private static final IExtensionHelpers helpers = callbacks.getHelpers();
-    private final IHttpRequestResponse baseRequestResponse;
+    private final MontoyaApi api;
+    private final TaskRepository taskRepository;
+    private final HttpRequestResponse requestResponse;
     private final UUID taskUUID;
 
-    public SubDomains(IHttpRequestResponse baseRequestResponse, UUID taskUUID) {
-        this.baseRequestResponse = baseRequestResponse;
+    public SubDomains(MontoyaApi api, HttpRequestResponse requestResponse, UUID taskUUID) {
+        this.api = api;
+        this.taskRepository = TaskRepository.getInstance();
+        this.requestResponse = requestResponse;
         this.taskUUID = taskUUID;
     }
 
     @Override
     public void run() {
-        BurpExtender.getTaskRepository().startTask(taskUUID);
+        taskRepository.startTask(taskUUID);
 
-        String responseString = new String(baseRequestResponse.getResponse());
-        String responseBodyString = responseString.substring(helpers.analyzeResponse(baseRequestResponse.getResponse()).getBodyOffset());
-        String domainFromReferer = Utilities.getDomainFromReferer(baseRequestResponse);
-        String requestDomain = helpers.analyzeRequest(baseRequestResponse).getUrl().getHost();
-        String rootDomain;
-        // Try to get caller domain from Referer header (to avoid matching cdn subdomains, ..etc.)
-        if (domainFromReferer != null) {
-            rootDomain = domainFromReferer;
-        } else {
-            // If the above failed, then use the domain from the HTTP request
-            rootDomain = Utilities.getRootDomain(requestDomain);
+        String responseBody = requestResponse.response().bodyToString();
+        String requestDomain = requestResponse.request().url().toString();
+        try {
+            requestDomain = new java.net.URL(requestDomain).getHost();
+        } catch (Exception e) {
+            api.logging().logToError("Error extracting domain: " + e.getMessage());
+            taskRepository.completeTask(taskUUID);
+            return;
         }
+        
+        String rootDomain = getRootDomain(requestDomain);
 
         if (rootDomain != null) {
-            // For reporting unique matches with markers
             List<byte[]> uniqueMatches = new ArrayList<>();
             StringBuilder uniqueMatchesSB = new StringBuilder();
 
-            // Simple SubDomains Regex
-            Pattern subDomainsRegex = Pattern.compile("([a-z-0-9]+[.])+" + rootDomain, Pattern.CASE_INSENSITIVE);
-            Matcher matcherSubDomains = subDomainsRegex.matcher(responseBodyString);
-            while (matcherSubDomains.find() && BurpExtender.isLoaded()) {
-                if (
-                        Utilities.isMatchedDomainValid(matcherSubDomains.group(), rootDomain, requestDomain)
-                ) {
-                    uniqueMatches.add(helpers.urlDecode(matcherSubDomains.group()).getBytes(StandardCharsets.UTF_8));
-                    appendFoundMatches(helpers.urlDecode(matcherSubDomains.group()), uniqueMatchesSB);
+            Pattern subDomainsRegex = Pattern.compile("([a-z0-9-]+[.])+" + rootDomain, Pattern.CASE_INSENSITIVE);
+            Matcher matcherSubDomains = subDomainsRegex.matcher(responseBody);
+            
+            while (matcherSubDomains.find()) {
+                String match = matcherSubDomains.group();
+                if (isValidSubdomain(match, rootDomain, requestDomain)) {
+                    String decodedMatch = api.utilities().urlUtils().decode(match);
+                    uniqueMatches.add(decodedMatch.getBytes(StandardCharsets.UTF_8));
+                    appendFoundMatch(decodedMatch, uniqueMatchesSB);
                 }
             }
-            reportFinding(baseRequestResponse, uniqueMatchesSB, uniqueMatches);
+            
+            reportFinding(uniqueMatchesSB, uniqueMatches);
         }
-        BurpExtender.getTaskRepository().completeTask(taskUUID);
+        
+        taskRepository.completeTask(taskUUID);
     }
 
-    private static void reportFinding(IHttpRequestResponse baseRequestResponse, StringBuilder allMatchesSB, List<byte[]> uniqueMatches) {
-        if (allMatchesSB.length() > 0) {
-            // Get markers of found Cloud URL Matches
-            List<int[]> allMatchesMarkers = Utilities.getMatches(baseRequestResponse.getResponse(), uniqueMatches);
+    private String getRootDomain(String domain) {
+        Pattern rootDomainRegex = Pattern.compile("[a-z0-9]+\\.[a-z0-9]+$", Pattern.CASE_INSENSITIVE);
+        Matcher matcher = rootDomainRegex.matcher(domain);
+        return matcher.find() ? matcher.group() : null;
+    }
 
-            // report the issue
-            sendNewIssue(baseRequestResponse,
+    private boolean isValidSubdomain(String subdomain, String rootDomain, String requestDomain) {
+        return subdomain.endsWith(rootDomain) && 
+               !subdomain.equals(rootDomain) && 
+               !subdomain.equals(requestDomain);
+    }
+
+    private void appendFoundMatch(String match, StringBuilder sb) {
+        if (sb.length() > 0) {
+            sb.append("\n");
+        }
+        sb.append(match);
+    }
+
+    private void reportFinding(StringBuilder allMatchesSB, List<byte[]> uniqueMatches) {
+        if (allMatchesSB.length() > 0) {
+            api.siteMap().add(CustomScanIssue.from(
+                    requestResponse,
                     "[JS Miner] Subdomains",
                     "The following subdomains were found in a static file.",
                     allMatchesSB.toString(),
-                    allMatchesMarkers,
-                    SEVERITY_INFORMATION,
-                    CONFIDENCE_CERTAIN
-            );
+                    "Information",
+                    "Certain"
+            ));
         }
     }
 }

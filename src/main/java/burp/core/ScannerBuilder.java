@@ -4,6 +4,7 @@ import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.core.scanners.*;
 import burp.utils.Utilities;
+import burp.config.ExtensionConfig;
 
 import java.time.Instant;
 import java.util.Set;
@@ -21,6 +22,9 @@ public class ScannerBuilder {
     private static final String[] EXTENSION_CSS = {"css"};
     private static final String[] EXTENSION_JS_JSON_CSS_MAP = {"js", "json", "css", "map"};
 
+    private static final String LOG_FORMAT = "[%s] %s | %s | %s";
+    private static final String LOG_TASK_ID_PREFIX = "Task ID: ";
+
     private final HttpRequestResponse[] requestResponses;
     private final int taskId;
     private final long timeStamp;
@@ -29,6 +33,8 @@ public class ScannerBuilder {
     private boolean scanDependencyConfusion;
     private boolean scanEndpoints;
     private boolean scanSourceMapper;
+    private boolean scanSubdomains;
+    private boolean scanCloudURLs;
     private boolean dumpStaticFiles;
     private boolean runAllPassiveScans;
 
@@ -41,6 +47,8 @@ public class ScannerBuilder {
         private boolean scanDependencyConfusion = false;
         private boolean scanEndpoints = false;
         private boolean scanSourceMapper = false;
+        private boolean scanSubdomains = false;
+        private boolean scanCloudURLs = false;
         private boolean dumpStaticFiles = false;
         private boolean runAllPassiveScans = false;
 
@@ -84,11 +92,23 @@ public class ScannerBuilder {
             return this;
         }
 
+        public Builder scanSubdomains() {
+            scanSubdomains = true;
+            return this;
+        }
+
+        public Builder scanCloudURLs() {
+            scanCloudURLs = true;
+            return this;
+        }
+
         public Builder runAllPassiveScans() {
             scanDependencyConfusion = true;
             scanEndpoints = true;
             scanSecrets = true;
             scanSourceMapper = true;
+            scanSubdomains = true;
+            scanCloudURLs = true;
             runAllPassiveScans = true;
             return this;
         }
@@ -107,6 +127,8 @@ public class ScannerBuilder {
         this.scanDependencyConfusion = builder.scanDependencyConfusion;
         this.scanEndpoints = builder.scanEndpoints;
         this.scanSourceMapper = builder.scanSourceMapper;
+        this.scanSubdomains = builder.scanSubdomains;
+        this.scanCloudURLs = builder.scanCloudURLs;
         this.dumpStaticFiles = builder.dumpStaticFiles;
         this.runAllPassiveScans = builder.runAllPassiveScans;
     }
@@ -130,6 +152,14 @@ public class ScannerBuilder {
 
         if (dumpStaticFiles) {
             runStaticFilesDumper();
+        }
+
+        if (scanSubdomains || runAllPassiveScans) {
+            runSubdomainsScan();
+        }
+
+        if (scanCloudURLs || runAllPassiveScans) {
+            runCloudURLsScan();
         }
     }
 
@@ -156,7 +186,7 @@ public class ScannerBuilder {
             };
 
             if (scanner != null) {
-                api.utilities().executeInBackground(scanner);
+                scanner.run();
             }
         } else {
             logSkippedScanInfo(taskName, url);
@@ -203,6 +233,20 @@ public class ScannerBuilder {
         }
     }
 
+    private void runSubdomainsScan() {
+        Set<HttpRequestResponse> uniqueRequests = Utilities.querySiteMap(requestResponses, EXTENSION_JS);
+        for (HttpRequestResponse requestResponse : uniqueRequests) {
+            scanVerifierExecutor(requestResponse, TaskName.SUBDOMAINS_SCAN, false);
+        }
+    }
+
+    private void runCloudURLsScan() {
+        Set<HttpRequestResponse> uniqueRequests = Utilities.querySiteMap(requestResponses, EXTENSION_JS);
+        for (HttpRequestResponse requestResponse : uniqueRequests) {
+            scanVerifierExecutor(requestResponse, TaskName.CLOUD_URLS_SCAN, false);
+        }
+    }
+
     @Override
     public String toString() {
         return "Scan Information{" +
@@ -221,9 +265,9 @@ public class ScannerBuilder {
         if (ExtensionConfig.getInstance().isVerboseLogging()) {
             api.logging().logToOutput(String.format(LOG_FORMAT,
                     "Skipped",
+                    LOG_TASK_ID_PREFIX + taskId,
                     taskName,
-                    url,
-                    LOG_TASK_ID_PREFIX + taskId));
+                    url));
         }
     }
 

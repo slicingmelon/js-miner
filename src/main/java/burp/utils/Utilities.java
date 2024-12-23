@@ -8,6 +8,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.net.URI;
+import burp.api.montoya.http.message.HttpRequestResponse;
+import java.util.HashSet;
+import java.util.Set;
+import burp.api.montoya.utilities.CryptoUtils;
 
 public final class Utilities {
     private static MontoyaApi api;
@@ -125,5 +130,55 @@ public final class Utilities {
         }
 
         return entropy;
+    }
+    
+    /**
+     * Converts a URI to a filesystem Path, safely handling separators across OS
+     * @param uri The URI to convert
+     * @return A Path object representing the URI's path component
+     */
+    public static Path urlToPath(URI uri) {
+        if (uri == null) {
+            return Paths.get("");
+        }
+
+        Path basePath = Paths.get(FileSystems.getDefault().getSeparator());
+        String[] pathSegments = uri.getPath().split("/");
+
+        for (String segment : pathSegments) {
+            if (!segment.isEmpty()) {
+                // Clean the segment of any potentially unsafe characters
+                String cleanSegment = segment.replaceAll("[?%*|:\"<>~]", "_");
+                basePath = basePath.resolve(cleanSegment);
+            }
+        }
+
+        return basePath;
+    }
+    
+    public static byte[] getHTTPResponseBodyHash(HttpRequestResponse requestResponse) {
+        if (requestResponse.response() != null) {
+            byte[] responseBodyBytes = requestResponse.response().body().getBytes();
+            return api.utilities().cryptoUtils().digest("SHA-256", responseBodyBytes);
+        }
+        return new byte[0];
+    }
+
+    public static Set<HttpRequestResponse> querySiteMap(HttpRequestResponse[] requestResponses, String[] extensions) {
+        Set<HttpRequestResponse> uniqueRequests = new HashSet<>();
+        for (HttpRequestResponse requestResponse : requestResponses) {
+            String url = requestResponse.request().url();
+            for (String extension : extensions) {
+                if (url.toLowerCase().endsWith("." + extension.toLowerCase())) {
+                    uniqueRequests.add(requestResponse);
+                    break;
+                }
+            }
+        }
+        return uniqueRequests;
+    }
+
+    public static String getURLPrefix(HttpRequestResponse requestResponse) {
+        return requestResponse.request().url();
     }
 }

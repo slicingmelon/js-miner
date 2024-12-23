@@ -1,110 +1,99 @@
 package burp.core.scanners;
 
-import burp.BurpExtender;
-import burp.IExtensionHelpers;
-import burp.IHttpRequestResponse;
-import burp.IScanIssue;
+import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.utils.CustomScanIssue;
 import burp.utils.FileUtils;
 import burp.utils.Utilities;
+import burp.core.TaskRepository;
 
 import java.io.IOException;
-import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.*;
-import java.util.Arrays;
 import java.util.UUID;
 
-import static burp.BurpExtender.mStdErr;
-import static burp.utils.Utilities.isDirEmpty;
-import static burp.utils.Utilities.trimURL;
-
 public class StaticFilesDumper implements Runnable {
-    private static final IExtensionHelpers helpers = BurpExtender.getHelpers();
-    private final IHttpRequestResponse baseRequestResponse;
-    private Path outputDirectory; // where we are going to store the source files
-    private final Path targetDirPath; // path with untrusted input
+    private final MontoyaApi api;
+    private final TaskRepository taskRepository;
+    private final HttpRequestResponse requestResponse;
+    private Path outputDirectory;
+    private final Path targetDirPath;
     private final UUID taskUUID;
     private final boolean isLastIterator;
 
-    public StaticFilesDumper(IHttpRequestResponse baseRequestResponse, long currentTimestamp, UUID taskUUID, boolean isLastIterator) {
-        this.isLastIterator = isLastIterator;
-        this.baseRequestResponse = baseRequestResponse;
+    public StaticFilesDumper(MontoyaApi api, HttpRequestResponse requestResponse, long currentTimestamp, 
+                            UUID taskUUID, boolean isLastIterator) {
+        this.api = api;
+        this.taskRepository = TaskRepository.getInstance();
+        this.requestResponse = requestResponse;
         this.taskUUID = taskUUID;
-        URL jsURL = helpers.analyzeRequest(baseRequestResponse).getUrl();
+        this.isLastIterator = isLastIterator;
+
+        String jsURL = requestResponse.request().url().toString();
         URI requestURI = null;
         try {
-            requestURI = jsURL.toURI();
+            requestURI = new URI(jsURL);
         } catch (URISyntaxException e) {
-            e.printStackTrace();
+            api.logging().logToError("URISyntaxException: " + e.getMessage());
         }
         this.targetDirPath = Utilities.urlToPath(requestURI);
 
         try {
-            URL jsMapURL = new URL(Utilities.appendURLPath(jsURL, ".map"));
+            URL jsMapURL = new URL(jsURL + ".map");
             this.outputDirectory = Paths.get(System.getProperty("user.home"))
                     .resolve(".BurpSuite")
                     .resolve("JS-Miner")
                     .resolve("Dump")
                     .resolve(jsMapURL.getHost() + "-" + currentTimestamp);
-        } catch (MalformedURLException e) {
-            mStdErr.println("[-] MalformedURLException");
+        } catch (Exception e) {
+            api.logging().logToError("Error setting output directory: " + e.getMessage());
         }
-
     }
 
     @Override
     public void run() {
-        BurpExtender.getTaskRepository().startTask(taskUUID);
-        // Get bytes of Response content
-        int bodyOffset = helpers.analyzeRequest(baseRequestResponse.getResponse()).getBodyOffset();
-        byte[] responseBytes = baseRequestResponse.getResponse();
-        byte[] responseBodyBytes = Arrays.copyOfRange(responseBytes, bodyOffset, responseBytes.length);
+        taskRepository.startTask(taskUUID);
+        
+        byte[] responseBodyBytes = requestResponse.response().body().getBytes();
 
         if (FileUtils.saveFile(targetDirPath.toString(), responseBodyBytes, outputDirectory)
-        && isLastIterator) {
-            // Report the issue once and when the last item is processed
+                && isLastIterator) {
             sendStaticFilesDumperIssue();
-            // Clean-up the "tmp" directory if it's empty
-            Path tmpDir = outputDirectory.resolve("tmp");
-            if (isDirEmpty(tmpDir)) {
-                try {
-                    Files.delete(tmpDir);
-                } catch (NoSuchFileException x) {
-                    mStdErr.format("%s: no such" + " file or directory%n", tmpDir);
-                } catch (DirectoryNotEmptyException x) {
-                    mStdErr.format("%s not empty%n", tmpDir);
-                } catch (IOException x) {
-                    // File permission problems are caught here.
-                    mStdErr.println(x);
-                }
-            }
+            cleanupTmpDirectory();
         }
 
-        BurpExtender.getTaskRepository().completeTask(taskUUID);
+        taskRepository.completeTask(taskUUID);
+    }
 
+    private void cleanupTmpDirectory() {
+        Path tmpDir = outputDirectory.resolve("tmp");
+        if (Utilities.isDirEmpty(tmpDir)) {
+            try {
+                Files.delete(tmpDir);
+            } catch (NoSuchFileException x) {
+                api.logging().logToError(tmpDir + ": no such file or directory");
+            } catch (DirectoryNotEmptyException x) {
+                api.logging().logToError(tmpDir + " not empty");
+            } catch (IOException x) {
+                api.logging().logToError("Error cleaning tmp directory: " + x.getMessage());
+            }
+        }
     }
 
     private void sendStaticFilesDumperIssue() {
-        IScanIssue scanIssue = null;
         try {
-            scanIssue = new CustomScanIssue(
-                    baseRequestResponse.getHttpService(),
-                    trimURL(helpers.analyzeRequest(baseRequestResponse).getUrl()),
-                    null,
+            api.siteMap().add(CustomScanIssue.from(
+                    requestResponse,
                     "[JS Miner] Static Files Dumper",
-                    "This issue was generated by \"" + BurpExtender.EXTENSION_NAME + "\" Burp extension.<br><br>" +
-                            "Static files were extracted to the following location:<br><br>" +
-                            "<b>" + outputDirectory + "</b>",
-                    null,
+                    "Static files were extracted to the following location: " + outputDirectory,
+                    "This issue was generated by JS Miner-NG Burp extension.",
                     "Information",
-                    "Certain");
+                    "Certain"
+            ));
         } catch (Exception e) {
-            mStdErr.println("[-] sendStaticFilesDumperIssue Exception.");
+            api.logging().logToError("Error sending Static Files Dumper issue: " + e.getMessage());
         }
-        Utilities.reportIssueIfNotDuplicate(scanIssue, baseRequestResponse);
     }
-
 }

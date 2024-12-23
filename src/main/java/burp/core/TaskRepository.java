@@ -9,6 +9,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import static burp.utils.Constants.LOG_FORMAT;
 import static burp.utils.Constants.LOG_TASK_ID_PREFIX;
+import burp.config.ExtensionConfig;
 
 public class TaskRepository {
     private static TaskRepository taskRepository = null;
