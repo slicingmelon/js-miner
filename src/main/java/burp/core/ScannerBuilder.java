@@ -239,7 +239,7 @@ public class ScannerBuilder {
     }
 
     private static void logSkippedScanInfo(int taskId, TaskName taskName, String url) {
-        if (BurpExtender.getExtensionConfig().isVerboseLogging()) {
+        if (ExtensionConfig.getInstance().isVerboseLogging()) {
             BurpExtender.api.logging().logToOutput(String.format(LOG_FORMAT,
                     "Skipped",
                     taskName,

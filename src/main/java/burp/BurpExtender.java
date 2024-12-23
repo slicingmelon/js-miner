@@ -18,32 +18,27 @@ import java.awt.event.ActionListener;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
 import static burp.utils.Constants.SETTING_BURP_PASSIVE;
 import static burp.utils.Constants.SETTING_VERBOSE_LOGGING;
 
 public class BurpExtender implements BurpExtension {
-    public static MontoyaApi api;
-    private static final ExecutorServiceManager executorServiceManager = ExecutorServiceManager.getInstance();
-    private static final TaskRepository taskRepository = TaskRepository.getInstance();
-    private static final ExtensionConfig extensionConfig = ExtensionConfig.getInstance();
-    private static boolean loaded = true;
-    public static final String EXTENSION_NAME = "JS Miner-NG";
+    private MontoyaApi api;
+    private final ExecutorServiceManager executorServiceManager = ExecutorServiceManager.getInstance();
+    private final TaskRepository taskRepository = TaskRepository.getInstance();
+    private final ExtensionConfig extensionConfig = ExtensionConfig.getInstance();
+    private static final String EXTENSION_NAME = "JS Miner-NG";
     private static final String EXTENSION_VERSION = "2.0";
     private int taskCount = 0;
 
     @Override
     public void initialize(MontoyaApi api) {
-        BurpExtender.api = api;
+        this.api = api;
         api.extension().setName(EXTENSION_NAME);
         
         // Register context menu
-        api.userInterface().registerContextMenuItemsProvider(new ContextMenuItemsProvider() {
-            @Override
-            public List<MenuItem> provideMenuItems(ContextMenuEvent event) {
-                return createMenuItems(event);
-            }
-        });
+        api.userInterface().registerContextMenuItemsProvider(this::createMenuItems);
         
         // Register HTTP handler for passive scanning
         api.http().registerHttpHandler(new HttpHandler() {
@@ -80,24 +75,27 @@ public class BurpExtender implements BurpExtension {
             
             // Main menu
             menuItems.add(MenuItem.builder()
-                .action(e -> runAutoMine(selectedMessages))
                 .text("Run JS Auto-Mine (check everything)")
+                .action(e -> runAutoMine(selectedMessages))
                 .build());
                 
             // Scans submenu
-            Menu scanMenu = Menu.builder().text("Scans")
+            Menu scanMenu = Menu.builder()
+                .text("Scans")
                 .menuItems(createScanMenuItems(selectedMessages))
                 .build();
             menuItems.add(scanMenu);
             
             // Config submenu
-            Menu configMenu = Menu.builder().text("Config")
+            Menu configMenu = Menu.builder()
+                .text("Config")
                 .menuItems(createConfigMenuItems())
                 .build();
             menuItems.add(configMenu);
             
             // Log submenu
-            Menu logMenu = Menu.builder().text("Log")
+            Menu logMenu = Menu.builder()
+                .text("Log")
                 .menuItems(createLogMenuItems())
                 .build();
             menuItems.add(logMenu);
@@ -120,10 +118,9 @@ public class BurpExtender implements BurpExtension {
 
     private void doPassiveScan(HttpResponseReceived response) {
         new Thread(() -> {
-            long ts = Instant.now().toEpochMilli();
             ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(response)
                     .runAllPassiveScans()
-                    .timeStamp(ts)
+                    .timeStamp(Instant.now().toEpochMilli())
                     .build();
             scannerBuilder.runScans();
         }).start();
@@ -192,60 +189,139 @@ public class BurpExtender implements BurpExtension {
             scanItems.add(jsSourceMapItem);
 
             JMenuItem secretsMenuItem = new JMenuItem("Secrets");
-            SecretsItemAction secretsItemAction = new SecretsItemAction(selectedMessages);
-            secretsMenuItem.addActionListener(secretsItemAction);
+            secretsMenuItem.addActionListener(e -> {
+                new Thread(() -> {
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(selectedMessages)
+                            .scanSecrets()
+                            .taskId(++taskCount)
+                            .build();
+                    scannerBuilder.runScans();
+                }).start();
+            });
             scanItems.add(secretsMenuItem);
 
             JMenuItem dependencyConfusionMenuItem = new JMenuItem("Dependency Confusion");
-            DependencyConfusionItemAction dependencyConfusionItemAction = new DependencyConfusionItemAction(selectedMessages);
-            dependencyConfusionMenuItem.addActionListener(dependencyConfusionItemAction);
+            dependencyConfusionMenuItem.addActionListener(e -> {
+                new Thread(() -> {
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(selectedMessages)
+                            .scanDependencyConfusion()
+                            .taskId(++taskCount)
+                            .build();
+                    scannerBuilder.runScans();
+                }).start();
+            });
             scanItems.add(dependencyConfusionMenuItem);
 
             JMenuItem subDomainsMenuItem = new JMenuItem("SubDomains");
-            SubDomainsItemAction subDomainsItemAction = new SubDomainsItemAction(selectedMessages);
-            subDomainsMenuItem.addActionListener(subDomainsItemAction);
+            subDomainsMenuItem.addActionListener(e -> {
+                new Thread(() -> {
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(selectedMessages)
+                            .scanSubDomains()
+                            .taskId(++taskCount)
+                            .build();
+                    scannerBuilder.runScans();
+                }).start();
+            });
             scanItems.add(subDomainsMenuItem);
 
             JMenuItem cloudURLsMenuItem = new JMenuItem("Cloud URLs");
-            CloudURLsItemAction cloudURLsItemAction = new CloudURLsItemAction(selectedMessages);
-            cloudURLsMenuItem.addActionListener(cloudURLsItemAction);
+            cloudURLsMenuItem.addActionListener(e -> {
+                new Thread(() -> {
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(selectedMessages)
+                            .scanCloudURLs()
+                            .taskId(++taskCount)
+                            .build();
+                    scannerBuilder.runScans();
+                }).start();
+            });
             scanItems.add(cloudURLsMenuItem);
 
             JMenuItem inlineSourceMapsMenuItem = new JMenuItem("Inline B64 JS Source Maps");
-            InlineSourceMapsItemAction inlineSourceMapsItemAction = new InlineSourceMapsItemAction(selectedMessages);
-            inlineSourceMapsMenuItem.addActionListener(inlineSourceMapsItemAction);
+            inlineSourceMapsMenuItem.addActionListener(e -> {
+                new Thread(() -> {
+                    long ts = Instant.now().toEpochMilli();
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(selectedMessages)
+                            .scanInlineSourceMapFiles()
+                            .taskId(++taskCount)
+                            .timeStamp(ts)
+                            .build();
+                    scannerBuilder.runScans();
+                }).start();
+            });
             scanItems.add(inlineSourceMapsMenuItem);
 
             JMenuItem dumpStaticFilesMenuItem = new JMenuItem("Dump Static Files");
-            DumpStaticFilesItemAction dumpStaticFilesItemAction = new DumpStaticFilesItemAction(selectedMessages);
-            dumpStaticFilesMenuItem.addActionListener(dumpStaticFilesItemAction);
+            dumpStaticFilesMenuItem.addActionListener(e -> {
+                new Thread(() -> {
+                    long ts = Instant.now().toEpochMilli();
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(selectedMessages)
+                            .dumpStaticFiles()
+                            .taskId(++taskCount)
+                            .timeStamp(ts)
+                            .build();
+                    scannerBuilder.runScans();
+                }).start();
+            });
             scanItems.add(dumpStaticFilesMenuItem);
 
             JMenuItem endpointsFinderMenuItem = new JMenuItem("API Endpoints Finder");
-            EndpointsFinderItemAction endpointsFinderItemAction = new EndpointsFinderItemAction(selectedMessages);
-            endpointsFinderMenuItem.addActionListener(endpointsFinderItemAction);
+            endpointsFinderMenuItem.addActionListener(e -> {
+                new Thread(() -> {
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(selectedMessages)
+                            .endpointsFinder()
+                            .taskId(++taskCount)
+                            .build();
+                    scannerBuilder.runScans();
+                }).start();
+            });
             scanItems.add(endpointsFinderMenuItem);
 
             // === Logging Menu Items ==== //
             JMenuItem checkTasksMenuItem = new JMenuItem("Tasks Summary");
-            CheckTasksMenuItemActions checkTasksMenuItemActions = new CheckTasksMenuItemActions();
-            checkTasksMenuItem.addActionListener(checkTasksMenuItemActions);
+            checkTasksMenuItem.addActionListener(e -> {
+                api.logging().logToOutput("[=============== Tasks Summary =============]");
+                api.logging().logToOutput("Total Tasks: " + taskRepository.getSize());
+                api.logging().logToOutput("Queued tasks: " + taskRepository.getQueuedTasks().size());
+                api.logging().logToOutput("Completed tasks: " + taskRepository.getCompletedTasks().size());
+                api.logging().logToOutput("Running tasks: " + taskRepository.getRunningTasks().size());
+                api.logging().logToOutput("Failed tasks: " + taskRepository.getFailedTasks().size());
+                api.logging().logToOutput("============================================");
+            });
             logItems.add(checkTasksMenuItem);
 
             JMenuItem runningMenuItem = new JMenuItem("Log Uncompleted Tasks");
-            PrintUncompletedTasksMenuItemActions runningTasksMenuItemActions = new PrintUncompletedTasksMenuItemActions();
-            runningMenuItem.addActionListener(runningTasksMenuItemActions);
+            runningMenuItem.addActionListener(e -> {
+                api.logging().logToOutput("[=============== Uncompleted Tasks =============]");
+
+                int runningTasksSize = taskRepository.getRunningTasks().size();
+                // If there was some timed out tasks, print them for troubleshooting or local checking
+                if (runningTasksSize > 0) {
+                    api.logging().logToOutput("Running tasks:" + taskRepository.printRunningTasks().toString());
+                    api.logging().logToOutput("=============================================");
+                }
+
+                int failedTasksSize = taskRepository.getFailedTasks().size();
+                // If there was some timed out tasks, print them for troubleshooting or local checking
+                if (failedTasksSize > 0) {
+                    api.logging().logToOutput("Failed tasks:" + taskRepository.printFailedTasks().toString());
+                    api.logging().logToOutput("=============================================");
+                }
+            });
             logItems.add(runningMenuItem);
 
             // === Configuration Menu Items ==== //
             JMenuItem toggleLoggingMenuItem = new JMenuItem(extensionConfig.loggingConfigMenuItemText());
-            ToggleLoggingMenuItemActions toggleLoggingMenuItemActions = new ToggleLoggingMenuItemActions();
-            toggleLoggingMenuItem.addActionListener(toggleLoggingMenuItemActions);
+            toggleLoggingMenuItem.addActionListener(e -> {
+                extensionConfig.toggleLogging();
+                updateExtensionConfig();
+            });
             configItems.add(toggleLoggingMenuItem);
 
             JMenuItem toggleBurpPassiveScanMenuItem = new JMenuItem(extensionConfig.passiveConfigMenuItemText());
-            ToggleBurpPassiveMenuItemActions toggleBurpPassiveMenuItemActions = new ToggleBurpPassiveMenuItemActions();
-            toggleBurpPassiveScanMenuItem.addActionListener(toggleBurpPassiveMenuItemActions);
+            toggleBurpPassiveScanMenuItem.addActionListener(e -> {
+                extensionConfig.togglePassiveScans();
+                updateExtensionConfig();
+            });
             configItems.add(toggleBurpPassiveScanMenuItem);
 
             items.add(configItems);
@@ -255,292 +331,151 @@ public class BurpExtender implements BurpExtension {
         return items;
     }
 
-    /*
-     *  Action menu items
-     */
-    class SecretsItemAction implements ActionListener {
-        private final IHttpRequestResponse[] httpReqResArray;
-
-        SecretsItemAction(IHttpRequestResponse[] httpReqResArr) {
-            this.httpReqResArray = httpReqResArr;
-        }
-
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            new Thread(() -> {
-                ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(httpReqResArray)
-                        .scanSecrets()
-                        .taskId(++taskCount)
-                        .build();
-                scannerBuilder.runScans();
-            }).start();
-        }
-    }
-
-    class DependencyConfusionItemAction implements ActionListener {
-        private final IHttpRequestResponse[] httpReqResArray;
-
-        DependencyConfusionItemAction(IHttpRequestResponse[] httpReqResArr) {
-            this.httpReqResArray = httpReqResArr;
-        }
-
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            new Thread(() -> {
-                ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(httpReqResArray)
-                        .scanDependencyConfusion()
-                        .taskId(++taskCount)
-                        .build();
-                scannerBuilder.runScans();
-            }).start();
-        }
-    }
-
-    class SubDomainsItemAction implements ActionListener {
-        private final IHttpRequestResponse[] httpReqResArray;
-
-        SubDomainsItemAction(IHttpRequestResponse[] httpReqResArr) {
-            this.httpReqResArray = httpReqResArr;
-        }
-
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            new Thread(() -> {
-                ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(httpReqResArray)
-                        .scanSubDomains()
-                        .taskId(++taskCount)
-                        .build();
-                scannerBuilder.runScans();
-            }).start();
-        }
-    }
-
-    class CloudURLsItemAction implements ActionListener {
-        private final IHttpRequestResponse[] httpReqResArray;
-
-        CloudURLsItemAction(IHttpRequestResponse[] httpReqResArr) {
-            this.httpReqResArray = httpReqResArr;
-        }
-
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            new Thread(() -> {
-                ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(httpReqResArray)
-                        .scanCloudURLs()
-                        .taskId(++taskCount)
-                        .build();
-                scannerBuilder.runScans();
-            }).start();
-        }
-    }
-
-    class InlineSourceMapsItemAction implements ActionListener {
-        private final IHttpRequestResponse[] httpReqResArray;
-
-        InlineSourceMapsItemAction(IHttpRequestResponse[] httpReqResArr) {
-            this.httpReqResArray = httpReqResArr;
-        }
-
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            new Thread(() -> {
-                // We need to use timestamp so all files (of the same host) can go to the same folder
-                long ts = Instant.now().toEpochMilli();
-                ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(httpReqResArray)
-                        .scanInlineSourceMapFiles()
+    private List<MenuItem> createScanMenuItems(List<HttpRequestResponse> messages) {
+        List<MenuItem> menuItems = new ArrayList<>();
+        
+        // All passive scans
+        menuItems.add(MenuItem.builder()
+            .text("Run all passive scans")
+            .action(e -> {
+                new Thread(() -> {
+                    long ts = Instant.now().toEpochMilli();
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
+                        .runAllPassiveScans()
                         .taskId(++taskCount)
                         .timeStamp(ts)
                         .build();
-                scannerBuilder.runScans();
-            }).start();
-        }
-    }
-
-    class ActiveSourceMapsItemAction implements ActionListener {
-        private final IHttpRequestResponse[] httpReqResArray;
-
-        ActiveSourceMapsItemAction(IHttpRequestResponse[] httpReqResArr) {
-            this.httpReqResArray = httpReqResArr;
-        }
-
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            new Thread(() -> {
-                // We need to use timestamp so all files can go to the same folder
-                long ts = Instant.now().toEpochMilli();
-                ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(httpReqResArray)
+                    scannerBuilder.runScans();
+                }).start();
+            })
+            .build());
+            
+        // JS source mapper
+        menuItems.add(MenuItem.builder()
+            .text("JS source mapper (active)")
+            .action(e -> {
+                new Thread(() -> {
+                    long ts = Instant.now().toEpochMilli();
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
                         .activeSourceMapperScan()
                         .taskId(++taskCount)
                         .timeStamp(ts)
                         .build();
-                scannerBuilder.runScans();
-            }).start();
-        }
+                    scannerBuilder.runScans();
+                }).start();
+            })
+            .build());
+            
+        // Secrets scan
+        menuItems.add(MenuItem.builder()
+            .text("Secrets")
+            .action(e -> runScan(messages, ScannerBuilder.Builder::scanSecrets))
+            .build());
+            
+        // Dependency Confusion
+        menuItems.add(MenuItem.builder()
+            .text("Dependency Confusion")
+            .action(e -> runScan(messages, ScannerBuilder.Builder::scanDependencyConfusion))
+            .build());
+            
+        // SubDomains
+        menuItems.add(MenuItem.builder()
+            .text("SubDomains")
+            .action(e -> runScan(messages, ScannerBuilder.Builder::scanSubDomains))
+            .build());
+            
+        // Cloud URLs
+        menuItems.add(MenuItem.builder()
+            .text("Cloud URLs")
+            .action(e -> runScan(messages, ScannerBuilder.Builder::scanCloudURLs))
+            .build());
+            
+        // Inline Source Maps
+        menuItems.add(MenuItem.builder()
+            .text("Inline B64 JS Source Maps")
+            .action(e -> runScan(messages, ScannerBuilder.Builder::scanInlineSourceMapFiles))
+            .build());
+            
+        // Dump Static Files
+        menuItems.add(MenuItem.builder()
+            .text("Dump Static Files")
+            .action(e -> runScan(messages, ScannerBuilder.Builder::dumpStaticFiles))
+            .build());
+            
+        // API Endpoints Finder
+        menuItems.add(MenuItem.builder()
+            .text("API Endpoints Finder")
+            .action(e -> runScan(messages, ScannerBuilder.Builder::endpointsFinder))
+            .build());
+            
+        return menuItems;
     }
 
-    class JSAutoMineItemAction implements ActionListener {
-        private final IHttpRequestResponse[] httpReqResArray;
-
-        JSAutoMineItemAction(IHttpRequestResponse[] httpReqResArr) {
-            this.httpReqResArray = httpReqResArr;
-        }
-
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            new Thread(() -> {
-                // We need to use timestamp so all files can go to the same folder
-                long ts = Instant.now().toEpochMilli();
-                ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(httpReqResArray)
-                        .runAllScans()
-                        .taskId(++taskCount)
-                        .timeStamp(ts)
-                        .build();
-                scannerBuilder.runScans();
-            }).start();
-        }
+    private void runScan(List<HttpRequestResponse> messages, Function<ScannerBuilder.Builder, ScannerBuilder.Builder> scanType) {
+        new Thread(() -> {
+            ScannerBuilder scannerBuilder = scanType.apply(new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0])))
+                .taskId(++taskCount)
+                .build();
+            scannerBuilder.runScans();
+        }).start();
     }
 
-    class AllPassiveScansItemAction implements ActionListener {
-        private final IHttpRequestResponse[] httpReqResArray;
-
-        AllPassiveScansItemAction(IHttpRequestResponse[] httpReqResArr) {
-            this.httpReqResArray = httpReqResArr;
-        }
-
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            new Thread(() -> {
-                // We need to use timestamp so all files can go to the same folder
-                long ts = Instant.now().toEpochMilli();
-                ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(httpReqResArray)
-                        .runAllPassiveScans()
-                        .taskId(++taskCount)
-                        .timeStamp(ts)
-                        .build();
-                scannerBuilder.runScans();
-            }).start();
-        }
+    private List<MenuItem> createConfigMenuItems() {
+        List<MenuItem> menuItems = new ArrayList<>();
+        
+        menuItems.add(MenuItem.builder()
+            .text(extensionConfig.loggingConfigMenuItemText())
+            .action(e -> {
+                extensionConfig.toggleLogging();
+                updateExtensionConfig();
+            })
+            .build());
+            
+        menuItems.add(MenuItem.builder()
+            .text(extensionConfig.passiveConfigMenuItemText())
+            .action(e -> {
+                extensionConfig.togglePassiveScans();
+                updateExtensionConfig();
+            })
+            .build());
+            
+        return menuItems;
     }
 
-    class DumpStaticFilesItemAction implements ActionListener {
-        private final IHttpRequestResponse[] httpReqResArray;
-
-        DumpStaticFilesItemAction(IHttpRequestResponse[] httpReqResArr) {
-            this.httpReqResArray = httpReqResArr;
-        }
-
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            new Thread(() -> {
-                // We need to use timestamp so all files can go to the same folder
-                long ts = Instant.now().toEpochMilli();
-                ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(httpReqResArray)
-                        .dumpStaticFiles()
-                        .taskId(++taskCount)
-                        .timeStamp(ts)
-                        .build();
-                scannerBuilder.runScans();
-            }).start();
-        }
-    }
-
-    class EndpointsFinderItemAction implements ActionListener {
-        private final IHttpRequestResponse[] httpReqResArray;
-
-        EndpointsFinderItemAction(IHttpRequestResponse[] httpReqResArr) {
-            this.httpReqResArray = httpReqResArr;
-        }
-
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            new Thread(() -> {
-                ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(httpReqResArray)
-                        .endpointsFinder()
-                        .taskId(++taskCount)
-                        .build();
-                scannerBuilder.runScans();
-            }).start();
-        }
-    }
-
-    class CheckTasksMenuItemActions implements ActionListener {
-
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            api.logging().logToOutput("[=============== Tasks Summary =============]");
-            api.logging().logToOutput("Total Tasks: " + getTaskRepository().getSize());
-            api.logging().logToOutput("Queued tasks: " + taskRepository.getQueuedTasks().size());
-            api.logging().logToOutput("Completed tasks: " + taskRepository.getCompletedTasks().size());
-            api.logging().logToOutput("Running tasks: " + taskRepository.getRunningTasks().size());
-            api.logging().logToOutput("Failed tasks: " + taskRepository.getFailedTasks().size());
-            api.logging().logToOutput("============================================");
-        }
-    }
-
-    class PrintUncompletedTasksMenuItemActions implements ActionListener {
-
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            api.logging().logToOutput("[=============== Uncompleted Tasks =============]");
-
-            int runningTasksSize = taskRepository.getRunningTasks().size();
-            // If there was some timed out tasks, print them for troubleshooting or local checking
-            if (runningTasksSize > 0) {
-                api.logging().logToOutput("Running tasks:" + taskRepository.printRunningTasks().toString());
-                api.logging().logToOutput("=============================================");
-            }
-
-            int failedTasksSize = taskRepository.getFailedTasks().size();
-            // If there was some timed out tasks, print them for troubleshooting or local checking
-            if (failedTasksSize > 0) {
-                api.logging().logToOutput("Failed tasks:" + taskRepository.printFailedTasks().toString());
-                api.logging().logToOutput("=============================================");
-            }
-        }
-    }
-
-    class ToggleLoggingMenuItemActions implements ActionListener {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            extensionConfig.toggleLogging();
-            updateExtensionConfig();
-        }
-    }
-
-    class ToggleBurpPassiveMenuItemActions implements ActionListener {
-        @Override
-        public void actionPerformed(ActionEvent e) {
-            extensionConfig.togglePassiveScans();
-            updateExtensionConfig();
-        }
-    }
-
-    @Override
-    public List<IScanIssue> doPassiveScan(IHttpRequestResponse baseRequestResponse) {
-        if (extensionConfig.isPassiveEnabled()) {
-            new Thread(() -> {
-                // run passive scans against JS/JSON files
-                long ts = Instant.now().toEpochMilli();
-                ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(new IHttpRequestResponse[]{baseRequestResponse})
-                        .runAllPassiveScans()
-                        .timeStamp(ts)
-                        .build();
-                scannerBuilder.runScans();
-            }).start();
-        }
-        return null;
-    }
-
-    @Override
-    public List<IScanIssue> doActiveScan(IHttpRequestResponse baseRequestResponse, IScannerInsertionPoint insertionPoint) {
-        return null;
-    }
-
-    @Override
-    public int consolidateDuplicateIssues(IScanIssue existingIssue, IScanIssue newIssue) {
-        if (existingIssue.getIssueName().equals(newIssue.getIssueName()))
-            return -1;
-        else return 0;
+    private List<MenuItem> createLogMenuItems() {
+        List<MenuItem> menuItems = new ArrayList<>();
+        
+        menuItems.add(MenuItem.builder()
+            .text("Check tasks")
+            .action(e -> {
+                api.logging().logToOutput("[=============== Tasks Summary =============]");
+                api.logging().logToOutput("Total Tasks: " + taskRepository.getSize());
+                api.logging().logToOutput("Queued tasks: " + taskRepository.getQueuedTasks().size());
+                api.logging().logToOutput("Completed tasks: " + taskRepository.getCompletedTasks().size());
+                api.logging().logToOutput("Running tasks: " + taskRepository.getRunningTasks().size());
+                api.logging().logToOutput("Failed tasks: " + taskRepository.getFailedTasks().size());
+                api.logging().logToOutput("============================================");
+            })
+            .build());
+            
+        menuItems.add(MenuItem.builder()
+            .text("Print uncompleted tasks")
+            .action(e -> {
+                api.logging().logToOutput("[=============== Uncompleted Tasks =============]");
+                int runningTasksSize = taskRepository.getRunningTasks().size();
+                if (runningTasksSize > 0) {
+                    api.logging().logToOutput("Running tasks:" + taskRepository.printRunningTasks());
+                    api.logging().logToOutput("=============================================");
+                }
+                int failedTasksSize = taskRepository.getFailedTasks().size();
+                if (failedTasksSize > 0) {
+                    api.logging().logToOutput("Failed tasks:" + taskRepository.printFailedTasks());
+                    api.logging().logToOutput("=============================================");
+                }
+            })
+            .build());
+            
+        return menuItems;
     }
 
 }

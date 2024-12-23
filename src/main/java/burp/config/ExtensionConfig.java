@@ -25,7 +25,7 @@ public class ExtensionConfig {
     }
 
     public String loggingConfigMenuItemText() {
-        if (extensionConfig.isVerboseLogging()) {
+        if (this.isVerboseLogging()) {
             return "Disable verbose logging for tasks";
         } else {
             return "Enable verbose logging for tasks";
@@ -33,7 +33,7 @@ public class ExtensionConfig {
     }
 
     public String passiveConfigMenuItemText() {
-        if (extensionConfig.isPassiveEnabled()) {
+        if (this.isPassiveEnabled()) {
             return "Disable Burp's passive scans";
         } else {
             return "Enable Burp's passive scans";
