@@ -40,13 +40,12 @@ public class BurpExtender implements BurpExtension {
         BurpExtender.api = api;
         api.extension().setName(EXTENSION_NAME);
         
+        // Initialize components
+        TaskRepository.setApi(api);
+        Utilities.setApi(api);
+        
         // Register context menu
-        api.userInterface().registerContextMenuItemsProvider(new ContextMenuItemsProvider() {
-            @Override
-            public List<MenuItem> provideMenuItems(ContextMenuEvent event) {
-                return createMenuItems(event);
-            }
-        });
+        api.userInterface().registerContextMenuItemsProvider(this::createMenuItems);
         
         // Register HTTP handler for passive scanning
         api.http().registerHttpHandler(new HttpHandler() {
@@ -64,50 +63,45 @@ public class BurpExtender implements BurpExtension {
             }
         });
 
-        // Log extension load
-        api.logging().logToOutput("[*] Loaded:\t" + EXTENSION_NAME + " v" + EXTENSION_VERSION);
-        api.logging().logToOutput("[*] Original Author:\tMina M. Edwar (minamo7sen@gmail.com)");
-        api.logging().logToOutput("[*] Forked by:\tpedro (slicingmelon)");
-        api.logging().logToOutput("=================================================");
-
+        api.logging().logToOutput("Loading " + EXTENSION_NAME + " v" + EXTENSION_VERSION);
+        api.logging().logToOutput("Original Author: Mina M. Edwar");
+        api.logging().logToOutput("Forked by: pedro (slicingmelon)");
+        
         loadExtensionConfig();
     }
 
     private List<MenuItem> createMenuItems(ContextMenuEvent event) {
-        List<MenuItem> menuItems = new ArrayList<>();
-        
         if (!event.messageEditorRequestResponse().isPresent() && 
             !event.selectedRequestResponses().isEmpty()) {
             
+            List<MenuItem> menuItems = new ArrayList<>();
             List<HttpRequestResponse> selectedMessages = event.selectedRequestResponses();
             
-            // Main menu
+            // Main menu item
             menuItems.add(MenuItem.builder()
-                .action(e -> runAutoMine(selectedMessages))
                 .text("Run JS Auto-Mine (check everything)")
+                .action(e -> runAutoMine(selectedMessages))
+                .build());
+            
+            // Add submenus
+            menuItems.add(Menu.builder()
+                .text("Scans")
+                .menuItems(createScanMenuItems(selectedMessages))
                 .build());
                 
-            // Scans submenu
-            Menu scanMenu = Menu.builder().text("Scans")
-                .menuItems(createScanMenuItems(selectedMessages))
-                .build();
-            menuItems.add(scanMenu);
-            
-            // Config submenu
-            Menu configMenu = Menu.builder().text("Config")
+            menuItems.add(Menu.builder()
+                .text("Config")
                 .menuItems(createConfigMenuItems())
-                .build();
-            menuItems.add(configMenu);
-            
-            // Log submenu
-            Menu logMenu = Menu.builder().text("Log")
+                .build());
+                
+            menuItems.add(Menu.builder()
+                .text("Log")
                 .menuItems(createLogMenuItems())
-                .build();
-            menuItems.add(logMenu);
+                .build());
+                
+            return menuItems;
         }
-        
-        return menuItems;
-    }
+        r
 
     private void runAutoMine(List<HttpRequestResponse> messages) {
         new Thread(() -> {
