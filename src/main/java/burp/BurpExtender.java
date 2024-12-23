@@ -23,7 +23,7 @@ import java.util.function.Function;
 import static burp.utils.Constants.SETTING_BURP_PASSIVE;
 import static burp.utils.Constants.SETTING_VERBOSE_LOGGING;
 
-public class BurpExtender implements BurpExtension {
+public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
     private final MontoyaApi api;
     private static final ExecutorServiceManager executorServiceManager = ExecutorServiceManager.getInstance();
     private static final TaskRepository taskRepository = TaskRepository.getInstance();
@@ -56,7 +56,7 @@ public class BurpExtender implements BurpExtension {
         });
         
         // Register context menu
-        api.userInterface().registerContextMenuItemsProvider(this::createMenuItems);
+        api.userInterface().registerContextMenuItemsProvider(this);
         
         // Register HTTP handler for passive scanning
         api.http().registerHttpHandler(new HttpHandler() {
@@ -81,7 +81,8 @@ public class BurpExtender implements BurpExtension {
         loadExtensionConfig();
     }
 
-    private List<MenuItem> createMenuItems(ContextMenuEvent event) {
+    @Override
+    public List<MenuItem> provideMenuItems(ContextMenuEvent event) {
         if (!event.messageEditorRequestResponse().isPresent() && 
             !event.selectedRequestResponses().isEmpty()) {
             
