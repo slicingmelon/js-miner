@@ -20,6 +20,10 @@ public final class Utilities {
         Utilities.api = api;
     }
     
+    public static MontoyaApi getApi() {
+        return api;
+    }
+    
     public static void createDirectoriesIfNotExist(Path path) {
         try {
             Files.createDirectories(path);

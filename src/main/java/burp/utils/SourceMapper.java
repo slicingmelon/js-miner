@@ -16,7 +16,7 @@ public class SourceMapper {
     private final Path outputDirPath;
 
     public SourceMapper(HttpRequestResponse requestResponse, String jsonMapFile, Path outputDirPath) {
-        this.api = Utilities.api;
+        this.api = Utilities.getApi();
         this.requestResponse = requestResponse;
         this.jsonMapFile = jsonMapFile;
         this.outputDirPath = outputDirPath;
