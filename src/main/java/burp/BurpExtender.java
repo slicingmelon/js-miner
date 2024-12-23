@@ -121,7 +121,7 @@ public class BurpExtender implements BurpExtension {
     private void runAutoMine(List<HttpRequestResponse> messages) {
         new Thread(() -> {
             long ts = Instant.now().toEpochMilli();
-            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
+            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(api, messages.toArray(new HttpRequestResponse[0]))
                 .runAllPassiveScans()
                 .taskId(++taskCount)
                 .timeStamp(ts)
@@ -132,7 +132,7 @@ public class BurpExtender implements BurpExtension {
 
     private void doPassiveScan(HttpResponseReceived response) {
         new Thread(() -> {
-            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(response)
+            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(api, new HttpRequestResponse[]{response})
                     .runAllPassiveScans()
                     .timeStamp(Instant.now().toEpochMilli())
                     .build();

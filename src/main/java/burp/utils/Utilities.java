@@ -5,8 +5,9 @@ import burp.api.montoya.core.ByteArray;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 
 public final class Utilities {
     private static MontoyaApi api;
@@ -97,5 +98,32 @@ public final class Utilities {
     
     public static List<int[]> getMatches(ByteArray response, byte[] match) {
         return getMatches(response, List.of(match));
+    }
+    
+    public static boolean isHighEntropy(String s) {
+        return getShannonEntropy(s) >= 3.5;
+    }
+
+    private static double getShannonEntropy(String s) {
+        if (s == null || s.isEmpty()) {
+            return 0.0;
+        }
+
+        int n = s.length();
+        Map<Character, Integer> occ = new HashMap<>();
+
+        // Count character occurrences
+        for (char c : s.toCharArray()) {
+            occ.merge(c, 1, Integer::sum);
+        }
+
+        // Calculate entropy
+        double entropy = 0.0;
+        for (int count : occ.values()) {
+            double p = (double) count / n;
+            entropy -= p * (Math.log(p) / Math.log(2));
+        }
+
+        return entropy;
     }
 }

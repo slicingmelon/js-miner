@@ -1,6 +1,6 @@
 package burp.core;
 
-import burp.BurpExtender;
+import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.core.scanners.*;
 import burp.utils.Utilities;
@@ -24,6 +24,7 @@ public class ScannerBuilder {
     private final HttpRequestResponse[] requestResponses;
     private final int taskId;
     private final long timeStamp;
+    private final MontoyaApi api;
     private boolean scanSecrets;
     private boolean scanDependencyConfusion;
     private boolean scanEndpoints;
@@ -33,6 +34,7 @@ public class ScannerBuilder {
 
     public static class Builder {
         private final HttpRequestResponse[] requestResponses;
+        private final MontoyaApi api;
         private long timeStamp = Instant.now().toEpochMilli();
         private int taskId = -1;
         private boolean scanSecrets = false;
@@ -42,7 +44,8 @@ public class ScannerBuilder {
         private boolean dumpStaticFiles = false;
         private boolean runAllPassiveScans = false;
 
-        public Builder(HttpRequestResponse[] requestResponses) {
+        public Builder(MontoyaApi api, HttpRequestResponse[] requestResponses) {
+            this.api = api;
             this.requestResponses = requestResponses;
         }
 
@@ -96,6 +99,7 @@ public class ScannerBuilder {
     }
 
     private ScannerBuilder(Builder builder) {
+        this.api = builder.api;
         this.requestResponses = builder.requestResponses;
         this.taskId = builder.taskId;
         this.timeStamp = builder.timeStamp;
@@ -109,118 +113,93 @@ public class ScannerBuilder {
 
     public void runScans() {
         if (scanSecrets || runAllPassiveScans) {
-            runSecretsScan(requestResponses, taskId, timeStamp);
+            runSecretsScan();
         }
 
         if (scanDependencyConfusion) {
-            runDependencyConfusionScan(requestResponses, taskId, timeStamp);
+            runDependencyConfusionScan();
         }
 
         if (scanEndpoints) {
-            runEndpointsScan(requestResponses, taskId, timeStamp);
+            runEndpointsScan();
         }
 
         if (scanSourceMapper) {
-            runSourceMapperScan(requestResponses, taskId, timeStamp);
+            runSourceMapperScan();
         }
 
         if (dumpStaticFiles) {
-            runStaticFilesDumper(requestResponses, taskId, timeStamp);
+            runStaticFilesDumper();
         }
     }
 
-    private static void scanVerifierExecutor(HttpRequestResponse requestResponse, int taskId, TaskName taskName, long timeStamp, boolean isLastIterator) {
+    private void scanVerifierExecutor(HttpRequestResponse requestResponse, TaskName taskName, boolean isLastIterator) {
         String url = requestResponse.request().url();
         byte[] responseBodyHash = Utilities.getHTTPResponseBodyHash(requestResponse);
+        TaskRepository taskRepository = TaskRepository.getInstance();
         
-        if (BurpExtender.getTaskRepository().notDuplicate(taskName, url, responseBodyHash)) {
+        if (taskRepository.notDuplicate(taskName, url, responseBodyHash)) {
             UUID uuid = UUID.randomUUID();
-            BurpExtender.getTaskRepository().addTask(
-                    new Task(taskId, uuid, taskName, url, responseBodyHash)
-            );
+            taskRepository.addTask(new Task(taskId, uuid, taskName, url, responseBodyHash));
             
-            switch (taskName) {
-                case SECRETS_SCAN:
-                    BurpExtender.getExecutorServiceManager().getExecutorService().submit(
-                            new Secrets(requestResponse, uuid));
-                    break;
-                case DEPENDENCY_CONFUSION_SCAN:
-                    BurpExtender.getExecutorServiceManager().getExecutorService().submit(
-                            new DependencyConfusion(requestResponse, uuid, true));
-                    break;
-                case DEPENDENCY_CONFUSION_SCAN_2:
-                    BurpExtender.getExecutorServiceManager().getExecutorService().submit(
-                            new DependencyConfusion(requestResponse, uuid, false));
-                    break;
-                case ENDPOINTS_FINDER:
-                    BurpExtender.getExecutorServiceManager().getExecutorService().submit(
-                            new Endpoints(requestResponse, uuid));
-                    break;
-                case SUBDOMAINS_SCAN:
-                    BurpExtender.getExecutorServiceManager().getExecutorService().submit(
-                            new SubDomains(requestResponse, uuid));
-                    break;
-                case CLOUD_URLS_SCAN:
-                    BurpExtender.getExecutorServiceManager().getExecutorService().submit(
-                            new CloudURLs(requestResponse, uuid));
-                    break;
-                case INLINE_JS_SOURCE_MAPPER:
-                    BurpExtender.getExecutorServiceManager().getExecutorService().submit(
-                            new InlineSourceMapFiles(requestResponse, uuid, timeStamp));
-                    break;
-                case SOURCE_MAPPER_ACTIVE_SCAN:
-                    BurpExtender.getExecutorServiceManager().getExecutorService().submit(
-                            new ActiveSourceMapper(requestResponse, timeStamp, uuid));
-                    break;
-                case STATIC_FILES_DUMPER:
-                    BurpExtender.getExecutorServiceManager().getExecutorService().submit(
-                            new StaticFilesDumper(requestResponse, timeStamp, uuid, isLastIterator));
-                    break;
-                default:
-                    break;
+            Runnable scanner = switch (taskName) {
+                case SECRETS_SCAN -> new Secrets(api, requestResponse, uuid);
+                case DEPENDENCY_CONFUSION_SCAN -> new DependencyConfusion(api, requestResponse, uuid, true);
+                case DEPENDENCY_CONFUSION_SCAN_2 -> new DependencyConfusion(api, requestResponse, uuid, false);
+                case ENDPOINTS_FINDER -> new Endpoints(api, requestResponse, uuid);
+                case SUBDOMAINS_SCAN -> new SubDomains(api, requestResponse, uuid);
+                case CLOUD_URLS_SCAN -> new CloudURLs(api, requestResponse, uuid);
+                case INLINE_JS_SOURCE_MAPPER -> new InlineSourceMapFiles(api, requestResponse, uuid, timeStamp);
+                case SOURCE_MAPPER_ACTIVE_SCAN -> new ActiveSourceMapper(api, requestResponse, timeStamp, uuid);
+                case STATIC_FILES_DUMPER -> new StaticFilesDumper(api, requestResponse, timeStamp, uuid, isLastIterator);
+                default -> null;
+            };
+
+            if (scanner != null) {
+                api.utilities().executeInBackground(scanner);
             }
         } else {
-            logSkippedScanInfo(taskId, taskName, url);
+            logSkippedScanInfo(taskName, url);
         }
     }
 
-    private static void runSecretsScan(HttpRequestResponse[] requestResponses, int taskId, long timeStamp) {
+    private void runSecretsScan() {
         Set<HttpRequestResponse> uniqueRequests = Utilities.querySiteMap(requestResponses, EXTENSION_JS_JSON);
         for (HttpRequestResponse requestResponse : uniqueRequests) {
-            scanVerifierExecutor(requestResponse, taskId, TaskName.SECRETS_SCAN, timeStamp, false);
+            scanVerifierExecutor(requestResponse, TaskName.SECRETS_SCAN, false);
         }
     }
 
-    private static void runDependencyConfusionScan(HttpRequestResponse[] requestResponses, int taskId, long timeStamp) {
+    private void runDependencyConfusionScan() {
         Set<HttpRequestResponse> uniqueRequests = Utilities.querySiteMap(requestResponses, EXTENSION_JS_JSON);
         for (HttpRequestResponse requestResponse : uniqueRequests) {
-            scanVerifierExecutor(requestResponse, taskId, TaskName.DEPENDENCY_CONFUSION_SCAN, timeStamp, false);
+            scanVerifierExecutor(requestResponse, TaskName.DEPENDENCY_CONFUSION_SCAN, false);
         }
 
         Set<HttpRequestResponse> uniqueRequestsCSS = Utilities.querySiteMap(requestResponses, EXTENSION_CSS);
         for (HttpRequestResponse requestResponse : uniqueRequestsCSS) {
-            scanVerifierExecutor(requestResponse, taskId, TaskName.DEPENDENCY_CONFUSION_SCAN_2, timeStamp, false);
+            scanVerifierExecutor(requestResponse, TaskName.DEPENDENCY_CONFUSION_SCAN_2, false);
         }
     }
 
-    private static void runEndpointsScan(HttpRequestResponse[] requestResponses, int taskId, long timeStamp) {
+    private void runEndpointsScan() {
         Set<HttpRequestResponse> uniqueRequests = Utilities.querySiteMap(requestResponses, EXTENSION_JS);
         for (HttpRequestResponse requestResponse : uniqueRequests) {
-            scanVerifierExecutor(requestResponse, taskId, TaskName.ENDPOINTS_FINDER, timeStamp, false);
+            scanVerifierExecutor(requestResponse, TaskName.ENDPOINTS_FINDER, false);
         }
     }
 
-    private static void runSourceMapperScan(HttpRequestResponse[] requestResponses, int taskId, long timeStamp) {
+    private void runSourceMapperScan() {
         Set<HttpRequestResponse> uniqueRequests = Utilities.querySiteMap(requestResponses, EXTENSION_JS);
         for (HttpRequestResponse requestResponse : uniqueRequests) {
-            scanVerifierExecutor(requestResponse, taskId, TaskName.SOURCE_MAPPER_ACTIVE_SCAN, timeStamp, false);
+            scanVerifierExecutor(requestResponse, TaskName.SOURCE_MAPPER_ACTIVE_SCAN, false);
         }
     }
 
-    private static void runStaticFilesDumper(HttpRequestResponse[] requestResponses, int taskId, long timeStamp) {
+    private void runStaticFilesDumper() {
         Set<HttpRequestResponse> uniqueRequests = Utilities.querySiteMap(requestResponses, EXTENSION_JS_JSON_CSS_MAP);
         for (HttpRequestResponse requestResponse : uniqueRequests) {
-            scanVerifierExecutor(requestResponse, taskId, TaskName.STATIC_FILES_DUMPER, timeStamp, false);
+            scanVerifierExecutor(requestResponse, TaskName.STATIC_FILES_DUMPER, false);
         }
     }
 
@@ -238,9 +217,9 @@ public class ScannerBuilder {
                 '}';
     }
 
-    private static void logSkippedScanInfo(int taskId, TaskName taskName, String url) {
+    private void logSkippedScanInfo(TaskName taskName, String url) {
         if (ExtensionConfig.getInstance().isVerboseLogging()) {
-            BurpExtender.api.logging().logToOutput(String.format(LOG_FORMAT,
+            api.logging().logToOutput(String.format(LOG_FORMAT,
                     "Skipped",
                     taskName,
                     url,
