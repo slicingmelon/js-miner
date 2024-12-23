@@ -88,7 +88,7 @@ public class SubDomains implements Runnable {
         if (allMatchesSB.length() > 0) {
             api.siteMap().add(CustomScanIssue.from(
                     requestResponse,
-                    "[JS Miner] Subdomains",
+                    "[JS Miner-NG] Subdomains",
                     "The following subdomains were found in a static file.",
                     allMatchesSB.toString(),
                     "Information",

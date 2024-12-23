@@ -15,6 +15,9 @@ import burp.config.ExtensionConfig;
 import burp.core.TaskRepository;
 import burp.core.ScannerBuilder;
 import burp.utils.Utilities;
+
+import javax.swing.*;
+import java.awt.*;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,7 +52,7 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
         
         // Register unloading handler
         api.extension().registerUnloadingHandler(() -> {
-            taskRepository.destroy();
+            taskRepository.clearTasks();
             api.logging().logToOutput("Sending shutdown signal to terminate any running threads...");
             executorServiceManager.getExecutorService().shutdownNow();
             api.logging().logToOutput("Extension was unloaded");
@@ -143,16 +146,6 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
         items.add(item);
     }
 
-    private void runScan(List<HttpRequestResponse> messages, 
-            Function<ScannerBuilder.Builder, ScannerBuilder.Builder> scanType) {
-        executorServiceManager.getExecutorService().submit(() -> {
-            ScannerBuilder scannerBuilder = scanType.apply(new ScannerBuilder.Builder(api, messages.toArray(new HttpRequestResponse[0])))
-                .taskId(++taskCount)
-                .build();
-            scannerBuilder.runScans();
-        });
-    }
-
     private List<JMenuItem> createConfigMenuItems() {
         List<JMenuItem> items = new ArrayList<>();
         
@@ -181,6 +174,38 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
         return items;
     }
 
+    private void runScan(List<HttpRequestResponse> messages, 
+            Function<ScannerBuilder.Builder, ScannerBuilder.Builder> scanType) {
+        executorServiceManager.getExecutorService().submit(() -> {
+            ScannerBuilder scannerBuilder = scanType.apply(new ScannerBuilder.Builder(api, messages.toArray(new HttpRequestResponse[0])))
+                .taskId(++taskCount)
+                .build();
+            scannerBuilder.runScans();
+        });
+    }
+
+    private void runAutoMine(List<HttpRequestResponse> messages) {
+        executorServiceManager.getExecutorService().submit(() -> {
+            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(api, messages.toArray(new HttpRequestResponse[0]))
+                .runAllPassiveScans()
+                .taskId(++taskCount)
+                .timeStamp(Instant.now().toEpochMilli())
+                .build();
+            scannerBuilder.runScans();
+        });
+    }
+
+    private void doPassiveScan(HttpResponseReceived response) {
+        executorServiceManager.getExecutorService().submit(() -> {
+            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(api)
+                .withHttpResponse(response)
+                .runAllPassiveScans()
+                .timeStamp(Instant.now().toEpochMilli())
+                .build();
+            scannerBuilder.runScans();
+        });
+    }
+
     private void updateExtensionConfig() {
         api.persistence().preferences().setString(SETTING_VERBOSE_LOGGING, 
             String.valueOf(extensionConfig.isVerboseLogging()));
@@ -198,16 +223,5 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
         if (passiveEnabled != null) {
             extensionConfig.setPassiveEnabled(Boolean.parseBoolean(passiveEnabled));
         }
-    }
-
-    private void runAutoMine(List<HttpRequestResponse> messages) {
-        executorServiceManager.getExecutorService().submit(() -> {
-            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(api, messages.toArray(new HttpRequestResponse[0]))
-                .runAllPassiveScans()
-                .taskId(++taskCount)
-                .timeStamp(Instant.now().toEpochMilli())
-                .build();
-            scannerBuilder.runScans();
-        });
     }
 }

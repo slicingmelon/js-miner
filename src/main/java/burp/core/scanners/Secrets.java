@@ -103,7 +103,7 @@ public class Secrets implements Runnable {
             
             api.siteMap().add(CustomScanIssue.from(
                     requestResponse,
-                    "[JS Miner] High Entropy Secrets",
+                    "[JS Miner-NG] High Entropy Secrets",
                     "High entropy secrets found in static file",
                     uniqueMatchesSBHigh.toString(),
                     "High",
@@ -116,7 +116,7 @@ public class Secrets implements Runnable {
             
             api.siteMap().add(CustomScanIssue.from(
                     requestResponse,
-                    "[JS Miner] Potential Secrets",
+                    "[JS Miner-NG] Potential Secrets",
                     "Potential secrets found in static file",
                     uniqueMatchesSBLow.toString(),
                     "Medium",

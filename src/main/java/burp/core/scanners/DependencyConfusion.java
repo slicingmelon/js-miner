@@ -120,7 +120,7 @@ public class DependencyConfusion implements Runnable {
     private void reportDependencies(String dependenciesList, List<int[]> depMatches) {
         api.siteMap().add(CustomScanIssue.from(
                 requestResponse,
-                "[JS Miner] Dependencies",
+                "[JS Miner-NG] Dependencies",
                 "The following dependencies were found in a static file.",
                 dependenciesList,
                 "Information",
@@ -134,7 +134,7 @@ public class DependencyConfusion implements Runnable {
         String severity = null;
 
         if (!npmPackage.isVersionValidNPM()) {
-            findingTitle = "[JS Miner] Dependency (Non-NPM registry package)";
+            findingTitle = "[JS Miner-NG] Dependency (Non-NPM registry package)";
             findingDetail = "The following non-NPM dependency was found in a static file. The version might contain a public repository URL, a private repository URL or a file path. Manual review is advised.";
             severity = SEVERITY_INFORMATION;
         } else if (npmPackage.getName().startsWith("@")) {
@@ -143,7 +143,7 @@ public class DependencyConfusion implements Runnable {
             HttpRequestResponse response = api.http().sendRequest(request);
 
             if (response.response() != null && response.response().statusCode() == 404) {
-                findingTitle = "[JS Miner] Dependency (organization not found)";
+                findingTitle = "[JS Miner-NG] Dependency (organization not found)";
                 findingDetail = "The following potentially exploitable dependency was found in a static file. The organization does not seem to be available, which indicates that it can be registered: https://www.npmjs.com/org/" + organizationName;
                 severity = SEVERITY_HIGH;
             }
@@ -152,7 +152,7 @@ public class DependencyConfusion implements Runnable {
             HttpRequestResponse response = api.http().sendRequest(request);
 
             if (response.response() != null && response.response().statusCode() == 404) {
-                findingTitle = "[JS Miner] Dependency Confusion";
+                findingTitle = "[JS Miner-NG] Dependency Confusion";
                 findingDetail = "The following potentially exploitable dependency was found in a static file. There was no entry for this package on the 'npm js' registry: https://registry.npmjs.org/" + npmPackage.getName();
                 severity = SEVERITY_HIGH;
             }

@@ -63,7 +63,7 @@ public class Endpoints implements Runnable {
 
             api.siteMap().add(CustomScanIssue.from(
                     requestResponse,
-                    "[JS Miner] API Endpoints (" + method + ")",
+                    "[JS Miner-NG] API Endpoints (" + method + ")",
                     "The following API endpoints were found in a static file.",
                     allMatchesSB.toString(),
                     "Information",
