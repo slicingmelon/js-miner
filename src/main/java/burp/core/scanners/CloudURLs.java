@@ -4,6 +4,7 @@ import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.utils.Utilities;
 import burp.core.TaskRepository;
+import burp.utils.CustomScanIssue;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -12,7 +13,6 @@ import java.util.UUID;
 import com.google.re2j.Matcher;
 
 import static burp.utils.Constants.*;
-import static burp.utils.Utilities.appendFoundMatches;
 
 public class CloudURLs implements Runnable {
     private final MontoyaApi api;
@@ -59,10 +59,16 @@ public class CloudURLs implements Runnable {
                     "[JS Miner] Cloud Resources",
                     "The following cloud URLs were found in a static file.",
                     allMatchesSB.toString(),
-                    allMatchesMarkers,
-                    SEVERITY_INFORMATION,
-                    CONFIDENCE_CERTAIN
+                    "Information",
+                    "Certain"
             ));
         }
+    }
+
+    private void appendFoundMatches(String match, StringBuilder sb) {
+        if (sb.length() > 0) {
+            sb.append("\n");
+        }
+        sb.append(match);
     }
 }
