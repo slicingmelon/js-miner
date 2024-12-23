@@ -9,6 +9,7 @@ import burp.config.ExtensionConfig;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static burp.utils.Constants.*;
 
@@ -37,6 +38,7 @@ public class ScannerBuilder {
     private boolean scanCloudURLs;
     private boolean dumpStaticFiles;
     private boolean runAllPassiveScans;
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
     public static class Builder {
         private final HttpRequestResponse[] requestResponses;
@@ -133,33 +135,46 @@ public class ScannerBuilder {
         this.runAllPassiveScans = builder.runAllPassiveScans;
     }
 
+    public boolean isRunning() {
+        return isRunning.get();
+    }
+
     public void runScans() {
-        if (scanSecrets || runAllPassiveScans) {
-            runSecretsScan();
+        if (!isRunning.compareAndSet(false, true)) {
+            api.logging().logToOutput("A scan is already running");
+            return;
         }
+        
+        try {
+            if (scanSecrets || runAllPassiveScans) {
+                runSecretsScan();
+            }
 
-        if (scanDependencyConfusion) {
-            runDependencyConfusionScan();
-        }
+            if (scanDependencyConfusion) {
+                runDependencyConfusionScan();
+            }
 
-        if (scanEndpoints) {
-            runEndpointsScan();
-        }
+            if (scanEndpoints) {
+                runEndpointsScan();
+            }
 
-        if (scanSourceMapper) {
-            runSourceMapperScan();
-        }
+            if (scanSourceMapper) {
+                runSourceMapperScan();
+            }
 
-        if (dumpStaticFiles) {
-            runStaticFilesDumper();
-        }
+            if (dumpStaticFiles) {
+                runStaticFilesDumper();
+            }
 
-        if (scanSubdomains || runAllPassiveScans) {
-            runSubdomainsScan();
-        }
+            if (scanSubdomains || runAllPassiveScans) {
+                runSubdomainsScan();
+            }
 
-        if (scanCloudURLs || runAllPassiveScans) {
-            runCloudURLsScan();
+            if (scanCloudURLs || runAllPassiveScans) {
+                runCloudURLsScan();
+            }
+        } finally {
+            isRunning.set(false);
         }
     }
 

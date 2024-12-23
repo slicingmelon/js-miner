@@ -82,44 +82,34 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
 
     @Override
     public List<MenuItem> provideMenuItems(ContextMenuEvent event) {
-        if (event.selectedRequestResponses().isEmpty()) {
+        if (event.messageEditorRequestResponse().isEmpty() && event.selectedRequestResponses().isEmpty()) {
             return List.of();
         }
         
         List<MenuItem> menuItems = new ArrayList<>();
         List<HttpRequestResponse> selectedMessages = event.selectedRequestResponses();
         
-        // Main menu item
-        menuItems.add(MenuItem.builder()
-            .text("Run JS Auto-Mine (check everything)")
-            .action(e -> runAutoMine(selectedMessages))
-            .build());
+        // Main menu
+        MenuItem mainMenuItem = MenuItem.of(
+            "JS Miner-NG",
+            List.of(
+                MenuItem.of("Run JS Auto-Mine (check everything)", 
+                    e -> runAutoMine(selectedMessages)),
+                Menu.of("Scans", createScanMenuItems(selectedMessages)),
+                Menu.of("Config", createConfigMenuItems()),
+                Menu.of("Log", createLogMenuItems())
+            )
+        );
         
-        // Add submenus
-        menuItems.add(Menu.builder()
-            .text("Scans")
-            .menuItems(createScanMenuItems(selectedMessages))
-            .build());
-            
-        menuItems.add(Menu.builder()
-            .text("Config")
-            .menuItems(createConfigMenuItems())
-            .build());
-            
-        menuItems.add(Menu.builder()
-            .text("Log")
-            .menuItems(createLogMenuItems())
-            .build());
-            
-        return menuItems;
+        return List.of(mainMenuItem);
     }
 
     private List<MenuItem> createLogMenuItems() {
         List<MenuItem> menuItems = new ArrayList<>();
-        menuItems.add(MenuItem.builder()
-            .text("Clear Log")
-            .action(e -> taskRepository.clearTasks())
-            .build());
+        menuItems.add(MenuItem.of(
+            "Clear Log",
+            e -> taskRepository.clearTasks()
+        ));
         return menuItems;
     }
 
@@ -169,10 +159,10 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
 
     private void addScanMenuItem(List<MenuItem> menuItems, String text, List<HttpRequestResponse> messages, 
             Function<ScannerBuilder.Builder, ScannerBuilder.Builder> scanType) {
-        menuItems.add(MenuItem.builder()
-            .text(text)
-            .action(e -> runScan(messages, scanType))
-            .build());
+        menuItems.add(MenuItem.of(
+            text,
+            e -> runScan(messages, scanType)
+        ));
     }
 
     private void runScan(List<HttpRequestResponse> messages, 
@@ -186,25 +176,24 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
     }
 
     private List<MenuItem> createConfigMenuItems() {
-        List<MenuItem> menuItems = new ArrayList<>();
-        
-        menuItems.add(MenuItem.builder()
-            .text(extensionConfig.loggingConfigMenuItemText())
-            .action(e -> {
-                extensionConfig.toggleLogging();
-                updateExtensionConfig();
-            })
-            .build());
-            
-        menuItems.add(MenuItem.builder()
-            .text(extensionConfig.passiveConfigMenuItemText())
-            .action(e -> {
-                extensionConfig.togglePassiveScans();
-                updateExtensionConfig();
-            })
-            .build());
-            
-        return menuItems;
+        return List.of(
+            MenuItem.of(
+                extensionConfig.loggingConfigMenuItemText(),
+                "Toggle verbose logging",
+                e -> {
+                    extensionConfig.toggleLogging();
+                    updateExtensionConfig();
+                }
+            ),
+            MenuItem.of(
+                extensionConfig.passiveConfigMenuItemText(),
+                "Toggle passive scanning",
+                e -> {
+                    extensionConfig.togglePassiveScans();
+                    updateExtensionConfig();
+                }
+            )
+        );
     }
 
     private void updateExtensionConfig() {
