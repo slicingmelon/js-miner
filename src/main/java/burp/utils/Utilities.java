@@ -5,18 +5,24 @@ import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.core.ByteArray;
+import burp.api.montoya.MontoyaApi;
 
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.Base64;
 
 public final class Utilities {
+    private static MontoyaApi api;
+    
+    public static void setApi(MontoyaApi api) {
+        Utilities.api = api;
+    }
     
     public static void createDirectoriesIfNotExist(Path path) {
         try {
             Files.createDirectories(path);
         } catch (IOException e) {
-            BurpExtender.api.logging().logToError("Error creating directory: " + e.getMessage());
+            api.logging().logToError("Error creating directory: " + e.getMessage());
         }
     }
     
@@ -44,7 +50,7 @@ public final class Utilities {
         try {
             return !Files.list(path).findFirst().isPresent();
         } catch (IOException e) {
-            BurpExtender.api.logging().logToError("Error checking directory: " + e.getMessage());
+            api.logging().logToError("Error checking directory: " + e.getMessage());
             return true;
         }
     }
@@ -53,7 +59,7 @@ public final class Utilities {
         try {
             return new String(Base64.getDecoder().decode(encodedString));
         } catch (IllegalArgumentException e) {
-            BurpExtender.api.logging().logToError("Error decoding base64: " + e.getMessage());
+            api.logging().logToError("Error decoding base64: " + e.getMessage());
             return "";
         }
     }

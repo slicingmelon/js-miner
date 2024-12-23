@@ -24,13 +24,17 @@ import static burp.utils.Constants.SETTING_BURP_PASSIVE;
 import static burp.utils.Constants.SETTING_VERBOSE_LOGGING;
 
 public class BurpExtender implements BurpExtension {
-    private MontoyaApi api;
+    private static MontoyaApi api;
     private final ExecutorServiceManager executorServiceManager = ExecutorServiceManager.getInstance();
     private final TaskRepository taskRepository = TaskRepository.getInstance();
     private final ExtensionConfig extensionConfig = ExtensionConfig.getInstance();
     private static final String EXTENSION_NAME = "JS Miner-NG";
     private static final String EXTENSION_VERSION = "2.0";
     private int taskCount = 0;
+
+    public static MontoyaApi getApi() {
+        return api;
+    }
 
     @Override
     public void initialize(MontoyaApi api) {
@@ -337,33 +341,13 @@ public class BurpExtender implements BurpExtension {
         // All passive scans
         menuItems.add(MenuItem.builder()
             .text("Run all passive scans")
-            .action(e -> {
-                new Thread(() -> {
-                    long ts = Instant.now().toEpochMilli();
-                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
-                        .runAllPassiveScans()
-                        .taskId(++taskCount)
-                        .timeStamp(ts)
-                        .build();
-                    scannerBuilder.runScans();
-                }).start();
-            })
+            .action(e -> runScan(messages, ScannerBuilder.Builder::runAllPassiveScans))
             .build());
             
         // JS source mapper
         menuItems.add(MenuItem.builder()
             .text("JS source mapper (active)")
-            .action(e -> {
-                new Thread(() -> {
-                    long ts = Instant.now().toEpochMilli();
-                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
-                        .activeSourceMapperScan()
-                        .taskId(++taskCount)
-                        .timeStamp(ts)
-                        .build();
-                    scannerBuilder.runScans();
-                }).start();
-            })
+            .action(e -> runScan(messages, ScannerBuilder.Builder::activeSourceMapperScan))
             .build());
             
         // Secrets scan
