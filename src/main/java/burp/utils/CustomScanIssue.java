@@ -1,96 +1,53 @@
 package burp.utils;
 
-import burp.IHttpRequestResponse;
-import burp.IHttpService;
-import burp.IScanIssue;
+import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.scanner.audit.issues.AuditIssue;
+import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
+import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
 
 import java.net.URL;
+import java.util.List;
 
-//
-// class implementing IScanIssue to hold our custom scan issue details
-//
-
-public class CustomScanIssue implements IScanIssue {
-    private final IHttpService httpService;
-    private final URL url;
-    private final IHttpRequestResponse[] httpMessages;
-    private final String name;
-    private final String background;
-    private final String detail;
-    private final String severity;
-    private final String confidence;
-
-    public CustomScanIssue(
-            IHttpService httpService,
-            URL url,
-            IHttpRequestResponse[] httpMessages,
+public class CustomScanIssue {
+    public static AuditIssue from(
+            HttpRequestResponse requestResponse,
             String name,
             String detail,
             String background,
             String severity,
             String confidence) {
-        this.httpService = httpService;
-        this.url = url;
-        this.httpMessages = httpMessages;
-        this.name = name;
-        this.detail = detail;
-        this.background = background;
-        this.severity = severity;
-        this.confidence = confidence;
+            
+        AuditIssueSeverity issueSeverity = convertSeverity(severity);
+        AuditIssueConfidence issueConfidence = convertConfidence(confidence);
+        
+        return AuditIssue.auditIssue(
+                name,
+                detail,
+                background,
+                requestResponse.request().url(),
+                issueSeverity,
+                issueConfidence,
+                null, // remediation background
+                null, // remediation detail
+                List.of(requestResponse)
+        );
     }
-
-    @Override
-    public URL getUrl() {
-        return url;
+    
+    private static AuditIssueSeverity convertSeverity(String severity) {
+        return switch (severity.toLowerCase()) {
+            case "high" -> AuditIssueSeverity.HIGH;
+            case "medium" -> AuditIssueSeverity.MEDIUM;
+            case "low" -> AuditIssueSeverity.LOW;
+            default -> AuditIssueSeverity.INFORMATION;
+        };
     }
-
-    @Override
-    public String getIssueName() {
-        return name;
-    }
-
-    @Override
-    public int getIssueType() {
-        return 0;
-    }
-
-    @Override
-    public String getSeverity() {
-        return severity;
-    }
-
-    @Override
-    public String getConfidence() {
-        return confidence;
-    } // Expected values are "Certain", "Firm" or "Tentative".
-
-    @Override
-    public String getIssueBackground() {
-        return background;
-    }
-
-    @Override
-    public String getRemediationBackground() {
-        return null;
-    }
-
-    @Override
-    public String getIssueDetail() {
-        return detail;
-    }
-
-    @Override
-    public String getRemediationDetail() {
-        return null;
-    }
-
-    @Override
-    public IHttpRequestResponse[] getHttpMessages() {
-        return httpMessages;
-    }
-
-    @Override
-    public IHttpService getHttpService() {
-        return httpService;
+    
+    private static AuditIssueConfidence convertConfidence(String confidence) {
+        return switch (confidence.toLowerCase()) {
+            case "certain" -> AuditIssueConfidence.CERTAIN;
+            case "firm" -> AuditIssueConfidence.FIRM;
+            case "tentative" -> AuditIssueConfidence.TENTATIVE;
+            default -> AuditIssueConfidence.TENTATIVE;
+        };
     }
 }

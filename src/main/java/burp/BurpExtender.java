@@ -18,7 +18,6 @@ import java.awt.event.ActionListener;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Arrays;
 
 import static burp.utils.Constants.SETTING_BURP_PASSIVE;
 import static burp.utils.Constants.SETTING_VERBOSE_LOGGING;
@@ -36,12 +35,15 @@ public class BurpExtender implements BurpExtension {
     @Override
     public void initialize(MontoyaApi api) {
         BurpExtender.api = api;
-        
-        // Register extension
         api.extension().setName(EXTENSION_NAME);
         
         // Register context menu
-        api.userInterface().registerContextMenuItemsProvider(this::createMenuItems);
+        api.userInterface().registerContextMenuItemsProvider(new ContextMenuItemsProvider() {
+            @Override
+            public List<MenuItem> provideMenuItems(ContextMenuEvent event) {
+                return createMenuItems(event);
+            }
+        });
         
         // Register HTTP handler for passive scanning
         api.http().registerHttpHandler(new HttpHandler() {
@@ -66,6 +68,54 @@ public class BurpExtender implements BurpExtension {
         api.logging().logToOutput("=================================================");
 
         loadExtensionConfig();
+    }
+
+    private List<MenuItem> createMenuItems(ContextMenuEvent event) {
+        List<MenuItem> menuItems = new ArrayList<>();
+        
+        if (!event.messageEditorRequestResponse().isPresent() && 
+            !event.selectedRequestResponses().isEmpty()) {
+            
+            List<HttpRequestResponse> selectedMessages = event.selectedRequestResponses();
+            
+            // Main menu
+            menuItems.add(MenuItem.builder()
+                .action(e -> runAutoMine(selectedMessages))
+                .text("Run JS Auto-Mine (check everything)")
+                .build());
+                
+            // Scans submenu
+            Menu scanMenu = Menu.builder().text("Scans")
+                .menuItems(createScanMenuItems(selectedMessages))
+                .build();
+            menuItems.add(scanMenu);
+            
+            // Config submenu
+            Menu configMenu = Menu.builder().text("Config")
+                .menuItems(createConfigMenuItems())
+                .build();
+            menuItems.add(configMenu);
+            
+            // Log submenu
+            Menu logMenu = Menu.builder().text("Log")
+                .menuItems(createLogMenuItems())
+                .build();
+            menuItems.add(logMenu);
+        }
+        
+        return menuItems;
+    }
+
+    private void runAutoMine(List<HttpRequestResponse> messages) {
+        new Thread(() -> {
+            long ts = Instant.now().toEpochMilli();
+            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
+                .runAllPassiveScans()
+                .taskId(++taskCount)
+                .timeStamp(ts)
+                .build();
+            scannerBuilder.runScans();
+        }).start();
     }
 
     private void doPassiveScan(HttpResponseReceived response) {
