@@ -38,21 +38,19 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
 
     @Override
     public void initialize(MontoyaApi api) {
+        this.api = api;
         api.extension().setName(EXTENSION_NAME);
         
         // Initialize components
         TaskRepository.setApi(api);
         
         // Register unloading handler
-        api.extension().registerUnloadingHandler(new ExtensionUnloadingHandler() {
-            @Override
-            public void extensionUnloaded() {
-                taskRepository.destroy();
-                api.logging().logToOutput("Sending shutdown signal to terminate any running threads...");
-                executorServiceManager.getExecutorService().shutdownNow();
-                api.logging().logToOutput("Extension was unloaded");
-                api.logging().logToOutput("=================================================");
-            }
+        api.extension().registerUnloadingHandler(() -> {
+            taskRepository.destroy();
+            api.logging().logToOutput("Sending shutdown signal to terminate any running threads...");
+            executorServiceManager.getExecutorService().shutdownNow();
+            api.logging().logToOutput("Extension was unloaded");
+            api.logging().logToOutput("=================================================");
         });
         
         // Register context menu
@@ -83,37 +81,45 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
 
     @Override
     public List<MenuItem> provideMenuItems(ContextMenuEvent event) {
-        if (!event.messageEditorRequestResponse().isPresent() && 
-            !event.selectedRequestResponses().isEmpty()) {
-            
-            List<MenuItem> menuItems = new ArrayList<>();
-            List<HttpRequestResponse> selectedMessages = event.selectedRequestResponses();
-            
-            // Main menu item
-            menuItems.add(MenuItem.builder()
-                .text("Run JS Auto-Mine (check everything)")
-                .action(e -> runAutoMine(selectedMessages))
-                .build());
-            
-            // Add submenus
-            menuItems.add(Menu.builder()
-                .text("Scans")
-                .menuItems(createScanMenuItems(selectedMessages))
-                .build());
-                
-            menuItems.add(Menu.builder()
-                .text("Config")
-                .menuItems(createConfigMenuItems())
-                .build());
-                
-            menuItems.add(Menu.builder()
-                .text("Log")
-                .menuItems(createLogMenuItems())
-                .build());
-                
-            return menuItems;
+        if (event.selectedRequestResponses().isEmpty()) {
+            return List.of();
         }
-        return List.of();
+        
+        List<MenuItem> menuItems = new ArrayList<>();
+        List<HttpRequestResponse> selectedMessages = event.selectedRequestResponses();
+        
+        // Main menu item
+        menuItems.add(MenuItem.builder()
+            .text("Run JS Auto-Mine (check everything)")
+            .action(e -> runAutoMine(selectedMessages))
+            .build());
+        
+        // Add submenus
+        menuItems.add(Menu.builder()
+            .text("Scans")
+            .menuItems(createScanMenuItems(selectedMessages))
+            .build());
+            
+        menuItems.add(Menu.builder()
+            .text("Config")
+            .menuItems(createConfigMenuItems())
+            .build());
+            
+        menuItems.add(Menu.builder()
+            .text("Log")
+            .menuItems(createLogMenuItems())
+            .build());
+            
+        return menuItems;
+    }
+
+    private List<MenuItem> createLogMenuItems() {
+        List<MenuItem> menuItems = new ArrayList<>();
+        menuItems.add(MenuItem.builder()
+            .text("Clear Log")
+            .action(e -> taskRepository.clearTasks())
+            .build());
+        return menuItems;
     }
 
     private void runAutoMine(List<HttpRequestResponse> messages) {
@@ -129,7 +135,7 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
     }
 
     private void doPassiveScan(HttpResponseReceived response) {
-        new Thread(() -> {
+        executorServiceManager.getExecutorService().submit(() -> {
             long ts = Instant.now().toEpochMilli();
             ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(api)
                 .withHttpResponse(response)
@@ -137,21 +143,16 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
                 .timeStamp(ts)
                 .build();
             scannerBuilder.runScans();
-        }).start();
+        });
     }
 
     private List<MenuItem> createScanMenuItems(List<HttpRequestResponse> messages) {
         List<MenuItem> menuItems = new ArrayList<>();
         
-        // All passive scans
         addScanMenuItem(menuItems, "Run all passive scans", messages, 
             b -> b.runAllPassiveScans().timeStamp(Instant.now().toEpochMilli()));
-            
-        // Source Mapper
         addScanMenuItem(menuItems, "JS source mapper (active)", messages, 
             ScannerBuilder.Builder::scanSourceMapper);
-            
-        // Add other scan items
         addScanMenuItem(menuItems, "Secrets", messages, ScannerBuilder.Builder::scanSecrets);
         addScanMenuItem(menuItems, "Dependency Confusion", messages, ScannerBuilder.Builder::scanDependencyConfusion);
         addScanMenuItem(menuItems, "SubDomains", messages, ScannerBuilder.Builder::scanSubdomains);
@@ -175,12 +176,34 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
 
     private void runScan(List<HttpRequestResponse> messages, 
             Function<ScannerBuilder.Builder, ScannerBuilder.Builder> scanType) {
-        new Thread(() -> {
+        executorServiceManager.getExecutorService().submit(() -> {
             ScannerBuilder scannerBuilder = scanType.apply(new ScannerBuilder.Builder(api, messages.toArray(new HttpRequestResponse[0])))
                 .taskId(++taskCount)
                 .build();
             scannerBuilder.runScans();
-        }).start();
+        });
+    }
+
+    private List<MenuItem> createConfigMenuItems() {
+        List<MenuItem> menuItems = new ArrayList<>();
+        
+        menuItems.add(MenuItem.builder()
+            .text(extensionConfig.loggingConfigMenuItemText())
+            .action(e -> {
+                extensionConfig.toggleLogging();
+                updateExtensionConfig();
+            })
+            .build());
+            
+        menuItems.add(MenuItem.builder()
+            .text(extensionConfig.passiveConfigMenuItemText())
+            .action(e -> {
+                extensionConfig.togglePassiveScans();
+                updateExtensionConfig();
+            })
+            .build());
+            
+        return menuItems;
     }
 
     private void updateExtensionConfig() {
