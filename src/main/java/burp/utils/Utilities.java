@@ -3,6 +3,9 @@ package burp.utils;
 import burp.api.montoya.MontoyaApi;
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 public final class Utilities {
     private static MontoyaApi api;
@@ -55,5 +58,33 @@ public final class Utilities {
             api.logging().logToError("Error decoding base64: " + e.getMessage());
             return "";
         }
+    }
+    
+    public static List<int[]> getMatches(ByteArray response, List<byte[]> uniqueMatches) {
+        List<int[]> matches = new ArrayList<>();
+        byte[] responseBytes = response.getBytes();
+
+        for (byte[] match : uniqueMatches) {
+            int start = 0;
+            while (start < responseBytes.length) {
+                int foundIndex = api.utilities().byteUtils().indexOf(responseBytes, match, false, start, responseBytes.length);
+                if (foundIndex == -1) break;
+                
+                matches.add(new int[]{foundIndex, foundIndex + match.length});
+                start = foundIndex + match.length;
+            }
+        }
+
+        // Sort matches by start index using primitive comparison
+        matches.sort((a, b) -> Integer.compare(a[0], b[0]));
+
+        // Fix overlapping offsets
+        for (int i = 0; i < matches.size() - 1; i++) {
+            if (matches.get(i)[1] > matches.get(i + 1)[0]) {
+                matches.set(i, new int[]{matches.get(i)[0], matches.get(i + 1)[0]});
+            }
+        }
+
+        return matches;
     }
 }

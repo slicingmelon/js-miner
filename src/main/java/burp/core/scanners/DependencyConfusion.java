@@ -1,8 +1,12 @@
 package burp.core.scanners;
 
-import burp.*;
+import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.utils.NPMPackage;
 import burp.utils.Utilities;
+import burp.utils.CustomScanIssue;
+import burp.core.TaskRepository;
 
 import java.io.IOException;
 import java.net.MalformedURLException;
@@ -14,34 +18,33 @@ import java.util.UUID;
 import com.google.re2j.Matcher;
 
 import static burp.utils.Constants.*;
-import static burp.utils.Utilities.*;
 
 public class DependencyConfusion implements Runnable {
-    private static final IBurpExtenderCallbacks callbacks = BurpExtender.getCallbacks();
-    private static final IExtensionHelpers helpers = callbacks.getHelpers();
-    private final IHttpRequestResponse baseRequestResponse;
+    private final MontoyaApi api;
+    private final TaskRepository taskRepository;
+    private final HttpRequestResponse requestResponse;
     private final UUID taskUUID;
     private final boolean findDependenciesWithRegex;
 
-    public DependencyConfusion(IHttpRequestResponse baseRequestResponse, UUID taskUUID, boolean findDependenciesWithRegex) {
-        this.baseRequestResponse = baseRequestResponse;
+    public DependencyConfusion(MontoyaApi api, HttpRequestResponse requestResponse, UUID taskUUID, boolean findDependenciesWithRegex) {
+        this.api = api;
+        this.taskRepository = TaskRepository.getInstance();
+        this.requestResponse = requestResponse;
         this.taskUUID = taskUUID;
         this.findDependenciesWithRegex = findDependenciesWithRegex;
     }
 
     @Override
     public void run() {
-        BurpExtender.getTaskRepository().startTask(taskUUID);
+        taskRepository.startTask(taskUUID);
 
-        // For reporting unique matches with markers
         List<byte[]> uniqueMatches = new ArrayList<>();
         StringBuilder uniqueMatchesSB = new StringBuilder();
 
-        String responseString = new String(baseRequestResponse.getResponse());
-        String responseBodyString = responseString.substring(helpers.analyzeResponse(baseRequestResponse.getResponse()).getBodyOffset());
+        String responseBody = requestResponse.response().bodyToString();
 
-        // Removing unwanted spaces, new lines and so on, which might mislead matching our Regex
-        Matcher dependenciesListMatcher = EXTRACT_DEPENDENCIES_REGEX.matcher(responseBodyString
+        // Removing unwanted spaces, new lines and so on
+        Matcher dependenciesListMatcher = EXTRACT_DEPENDENCIES_REGEX.matcher(responseBody
                 .replaceAll("\\s", "")
                 .replace("\t", "")
                 .replace("\r", "")
@@ -49,16 +52,12 @@ public class DependencyConfusion implements Runnable {
 
         HashSet<NPMPackage> uniquePackageNames = new HashSet<>();
 
-        // Approach 1 to identify internal NPM packages based on the "EXTRACT_DEPENDENCIES_REGEX"
         if (findDependenciesWithRegex) {
             while (dependenciesListMatcher.find()) {
                 String dependencyList = dependenciesListMatcher.group(2);
                 String[] dependencyListArray = dependencyList.split(",");
                 for (String dependency : dependencyListArray) {
-                    // A new npm package that holds and validates name and version for later use
                     NPMPackage npmPackage = new NPMPackage(dependency);
-
-                    // package name must be valid
                     if (npmPackage.isNameValid()) {
                         uniquePackageNames.add(npmPackage);
                         uniqueMatches.add(npmPackage.getNameWithVersion().getBytes());
@@ -68,12 +67,9 @@ public class DependencyConfusion implements Runnable {
             }
         }
 
-        // Approach 2 to identify internal NPM packages that were part of common node_modules URL path (e.g.: /node_modules/<pkg> )
-        Matcher fromNodeModulesPathMatcher = extractFromNodeModules.matcher(responseBodyString);
+        Matcher fromNodeModulesPathMatcher = extractFromNodeModules.matcher(responseBody);
         while (fromNodeModulesPathMatcher.find()) {
-            // The new npm package won't have a version, so passing "disclosedNameOnly" flag to handle it properly
             NPMPackage npmPackage = new NPMPackage(fromNodeModulesPathMatcher.group(1), true);
-            // package name must be valid
             if (npmPackage.isNameValid()) {
                 uniquePackageNames.add(npmPackage);
                 uniqueMatches.add(npmPackage.getNameWithVersion().getBytes());
@@ -81,116 +77,100 @@ public class DependencyConfusion implements Runnable {
             }
         }
 
-        // Get matches & report all dependencies as info
         if (uniqueMatchesSB.length() > 0) {
-            List<int[]> allDependenciesMatches = getMatches(baseRequestResponse.getResponse(), uniqueMatches);
-            reportDependencies(baseRequestResponse, uniqueMatchesSB.toString(), allDependenciesMatches);
+            List<int[]> allDependenciesMatches = Utilities.getMatches(requestResponse.response().toByteArray(), uniqueMatches);
+            reportDependencies(uniqueMatchesSB.toString(), allDependenciesMatches);
 
-            // Loop each identified package and check for Dependency Confusion
             for (NPMPackage npmPackage : uniquePackageNames) {
-                // Get markers of each single dependency with its version
-                List<int[]> depMatches = getMatches(baseRequestResponse.getResponse(), npmPackage.toString().getBytes());
+                List<int[]> depMatches = Utilities.getMatches(requestResponse.response().toByteArray(), npmPackage.toString().getBytes());
                 try {
                     if (isConnectionOK()) {
-                        verifyDependencyConfusion(baseRequestResponse, npmPackage, depMatches);
-                        BurpExtender.getTaskRepository().completeTask(taskUUID);
+                        verifyDependencyConfusion(npmPackage, depMatches);
+                        taskRepository.completeTask(taskUUID);
                     } else {
-                        // If connection failed, fail the task to allow re-scanning
-                        BurpExtender.getTaskRepository().failTask(taskUUID);
+                        taskRepository.failTask(taskUUID);
                     }
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    api.logging().logToError("Error verifying dependency confusion: " + e.getMessage());
                 }
             }
         } else {
-            // if no NPM package names were found, then task is completed
-            BurpExtender.getTaskRepository().completeTask(taskUUID);
+            taskRepository.completeTask(taskUUID);
         }
     }
 
-    private static boolean isConnectionOK(){
+    private boolean isConnectionOK() {
         try {
-            URL npmURL = new URL("https://www.npmjs.com/robots.txt");
-            IHttpRequestResponse npmJSReqRes = callbacks.makeHttpRequest(Utilities.url2HttpService(npmURL), helpers.buildHttpRequest(npmURL));
-            URL npmRegistryURL = new URL("https://registry.npmjs.org/");
-            IHttpRequestResponse npmRegistryReqRes = callbacks.makeHttpRequest(Utilities.url2HttpService(npmRegistryURL), helpers.buildHttpRequest(npmRegistryURL));
+            HttpRequest npmRequest = HttpRequest.httpRequestFromUrl("https://www.npmjs.com/robots.txt");
+            HttpRequest registryRequest = HttpRequest.httpRequestFromUrl("https://registry.npmjs.org/");
+            
+            HttpRequestResponse npmResponse = api.http().sendRequest(npmRequest);
+            HttpRequestResponse registryResponse = api.http().sendRequest(registryRequest);
 
-            return npmJSReqRes.getResponse() != null && npmRegistryReqRes.getResponse() != null;
+            return npmResponse.response() != null && registryResponse.response() != null;
         } catch (MalformedURLException e) {
-            e.printStackTrace();
+            api.logging().logToError("Error checking connection: " + e.getMessage());
         }
         return false;
     }
 
-    private static void reportDependencies(IHttpRequestResponse baseRequestResponse, String dependenciesList, List<int[]> depMatches) {
-        String findingTitle;
-        String findingDetail;
-        String severity;
-
-        findingTitle = "[JS Miner] Dependencies";
-        findingDetail = "The following dependencies were found in a static file.";
-        severity = SEVERITY_INFORMATION;
-
-        sendNewIssue(baseRequestResponse,
-                findingTitle,
-                findingDetail,
+    private void reportDependencies(String dependenciesList, List<int[]> depMatches) {
+        api.siteMap().add(CustomScanIssue.from(
+                requestResponse,
+                "[JS Miner] Dependencies",
+                "The following dependencies were found in a static file.",
                 dependenciesList,
-                depMatches,
-                severity,
-                CONFIDENCE_CERTAIN
-        );
+                "Information",
+                "Certain"
+        ));
     }
 
-    // Verify if dependency is exploitable by querying npm js registry service
-    private static void verifyDependencyConfusion(IHttpRequestResponse baseRequestResponse, NPMPackage npmPackage, List<int[]> depMatches) throws IOException {
+    private void verifyDependencyConfusion(NPMPackage npmPackage, List<int[]> depMatches) throws IOException {
         String findingTitle = null;
         String findingDetail = null;
         String severity = null;
 
-        // 1. if package version does not comply with NPM Semantic versioning, then report it as info for manual analysis
         if (!npmPackage.isVersionValidNPM()) {
             findingTitle = "[JS Miner] Dependency (Non-NPM registry package)";
             findingDetail = "The following non-NPM dependency was found in a static file. The version might contain a public repository URL, a private repository URL or a file path. Manual review is advised.";
             severity = SEVERITY_INFORMATION;
         } else if (npmPackage.getName().startsWith("@")) {
-            // 2. if package name starts with "@", then it's a scoped package.
             String organizationName = npmPackage.getOrgNameFromScopedDependency();
+            HttpRequest request = HttpRequest.httpRequestFromUrl("https://www.npmjs.com/org/" + organizationName);
+            HttpRequestResponse response = api.http().sendRequest(request);
 
-            URL url = new URL("https://www.npmjs.com/org/" + organizationName);
-            IHttpRequestResponse httpRequestResponse = callbacks.makeHttpRequest(Utilities.url2HttpService(url), helpers.buildHttpRequest(url));
-
-            // 2.1 scoped package with non-existing organization -> Most likely a valid issue
-            if (httpRequestResponse.getResponse() != null
-                    && helpers.analyzeResponse(httpRequestResponse.getResponse()).getStatusCode() == 404) {
-                // valid critical issue
+            if (response.response() != null && response.response().statusCode() == 404) {
                 findingTitle = "[JS Miner] Dependency (organization not found)";
-                findingDetail = "The following potentially exploitable dependency was found in a static file. The organization does not seem to be available, which indicates that it can be registered: " + url;
+                findingDetail = "The following potentially exploitable dependency was found in a static file. The organization does not seem to be available, which indicates that it can be registered: https://www.npmjs.com/org/" + organizationName;
                 severity = SEVERITY_HIGH;
             }
         } else {
-            // 3. Public NPM package
-            URL url = new URL("https://registry.npmjs.org/" + npmPackage.getName());
-            IHttpRequestResponse httpRequestResponse = callbacks.makeHttpRequest(Utilities.url2HttpService(url), helpers.buildHttpRequest(url));
+            HttpRequest request = HttpRequest.httpRequestFromUrl("https://registry.npmjs.org/" + npmPackage.getName());
+            HttpRequestResponse response = api.http().sendRequest(request);
 
-            // 3.1 If package name does not exist -> Most likely a valid issue
-            if (httpRequestResponse.getResponse() != null
-                    && helpers.analyzeResponse(httpRequestResponse.getResponse()).getStatusCode() == 404) {
-                // valid critical issue
+            if (response.response() != null && response.response().statusCode() == 404) {
                 findingTitle = "[JS Miner] Dependency Confusion";
-                findingDetail = "The following potentially exploitable dependency was found in a static file. There was no entry for this package on the 'npm js' registry: " + url;
+                findingDetail = "The following potentially exploitable dependency was found in a static file. There was no entry for this package on the 'npm js' registry: https://registry.npmjs.org/" + npmPackage.getName();
                 severity = SEVERITY_HIGH;
             }
         }
 
         if (findingTitle != null) {
-            sendNewIssue(baseRequestResponse,
+            api.siteMap().add(CustomScanIssue.from(
+                    requestResponse,
                     findingTitle,
                     findingDetail,
-                    npmPackage.getNameWithVersion(),
-                    depMatches,
+                    npmPackage.toString(),
                     severity,
-                    CONFIDENCE_CERTAIN
-            );
+                    "Certain"
+            ));
         }
+    }
+
+    private void appendFoundMatches(String match, StringBuilder sb) {
+        if (sb.length() > 0) {
+            sb.append("\n");
+        }
+        sb.append(match);
     }
 }
