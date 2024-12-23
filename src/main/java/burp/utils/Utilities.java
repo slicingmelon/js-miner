@@ -1,15 +1,8 @@
 package burp.utils;
 
-import burp.BurpExtender;
-import burp.api.montoya.http.message.HttpRequestResponse;
-import burp.api.montoya.http.message.requests.HttpRequest;
-import burp.api.montoya.http.message.responses.HttpResponse;
-import burp.api.montoya.core.ByteArray;
 import burp.api.montoya.MontoyaApi;
-
 import java.io.IOException;
 import java.nio.file.*;
-import java.util.Base64;
 
 public final class Utilities {
     private static MontoyaApi api;
@@ -57,7 +50,7 @@ public final class Utilities {
     
     public static String b64Decode(String encodedString) {
         try {
-            return new String(Base64.getDecoder().decode(encodedString));
+            return api.utilities().base64Utils().decode(encodedString).toString();
         } catch (IllegalArgumentException e) {
             api.logging().logToError("Error decoding base64: " + e.getMessage());
             return "";

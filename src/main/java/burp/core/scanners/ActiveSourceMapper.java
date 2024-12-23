@@ -1,8 +1,10 @@
 package burp.core.scanners;
 
-import burp.*;
+import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.utils.SourceMapper;
-import burp.utils.Utilities;
+import burp.core.TaskRepository;
 
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -10,57 +12,50 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.UUID;
 
-import static burp.BurpExtender.mStdErr;
-
 public class ActiveSourceMapper implements Runnable {
-    private static final IBurpExtenderCallbacks callbacks = BurpExtender.getCallbacks();
-    private static final IExtensionHelpers helpers = BurpExtender.getHelpers();
+    private final MontoyaApi api;
+    private final TaskRepository taskRepository;
     private URL jsMapURL;
     private Path outputDirectory;
     private final UUID taskUUID;
 
-    public ActiveSourceMapper(IHttpRequestResponse requestResponse, long currentTimestamp, UUID taskUUID) {
-        URL jsURL = helpers.analyzeRequest(requestResponse).getUrl();
+    public ActiveSourceMapper(MontoyaApi api, HttpRequestResponse requestResponse, long currentTimestamp, UUID taskUUID) {
+        this.api = api;
+        this.taskRepository = TaskRepository.getInstance();
         this.taskUUID = taskUUID;
-
+        
         try {
-            this.jsMapURL = new URL(Utilities.appendURLPath(jsURL, ".map"));
+            String jsURL = requestResponse.request().url();
+            this.jsMapURL = new URL(jsURL + ".map");
             this.outputDirectory = Paths.get(System.getProperty("user.home"))
                     .resolve(".BurpSuite")
                     .resolve("JS-Miner")
                     .resolve(jsMapURL.getHost() + "-" + currentTimestamp);
         } catch (MalformedURLException e) {
-            mStdErr.println("[-] MalformedURLException");
+            api.logging().logToError("MalformedURLException: " + e.getMessage());
         }
     }
 
+    @Override
     public void run() {
         try {
-            BurpExtender.getTaskRepository().startTask(taskUUID);
-            IHttpRequestResponse newHTTPReqRes = callbacks.makeHttpRequest(Utilities.url2HttpService(jsMapURL), helpers.buildHttpRequest(jsMapURL));
-            // if 200 OK, add to sitemap & pass content to parse map files
-            if (helpers.analyzeResponse(newHTTPReqRes.getResponse()).getStatusCode() == 200
-                    && BurpExtender.isLoaded()
-            ) {
-                callbacks.addToSiteMap(newHTTPReqRes);
-                String response = new String(newHTTPReqRes.getResponse());
-                String responseBody = response.substring(helpers.analyzeRequest(newHTTPReqRes.getResponse()).getBodyOffset());
-                // Quick check to see if Response contains what we are looking for
+            taskRepository.startTask(taskUUID);
+            
+            HttpRequest mapRequest = HttpRequest.httpRequestFromUrl(jsMapURL.toString());
+            HttpRequestResponse mapResponse = api.http().sendRequest(mapRequest);
+            
+            if (mapResponse.response().statusCode() == 200) {
+                api.siteMap().add(mapResponse);
+                String responseBody = mapResponse.response().bodyToString();
+                
                 if (responseBody.contains("sources") && responseBody.contains("sourcesContent")) {
-                    new SourceMapper(
-                            newHTTPReqRes,
-                            responseBody,
-                            outputDirectory
-                    );
+                    new SourceMapper(mapResponse, responseBody, outputDirectory);
                 }
             }
-            BurpExtender.getTaskRepository().completeTask(taskUUID);
+            taskRepository.completeTask(taskUUID);
         } catch (Exception e) {
-            BurpExtender.getTaskRepository().failTask(taskUUID);
-            StackTraceElement[] traces = e.getStackTrace();
-            for (StackTraceElement trace : traces) {
-                mStdErr.println(trace);
-            }
+            taskRepository.failTask(taskUUID);
+            api.logging().logToError("Error in ActiveSourceMapper: " + e.getMessage());
         }
     }
 }

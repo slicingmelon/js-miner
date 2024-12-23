@@ -1,7 +1,9 @@
 package burp.core.scanners;
 
-import burp.*;
+import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.utils.Utilities;
+import burp.core.TaskRepository;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -11,57 +13,56 @@ import com.google.re2j.Matcher;
 
 import static burp.utils.Constants.*;
 import static burp.utils.Utilities.appendFoundMatches;
-import static burp.utils.Utilities.sendNewIssue;
 
 public class CloudURLs implements Runnable {
-    private static final IBurpExtenderCallbacks callbacks = BurpExtender.getCallbacks();
-    private static final IExtensionHelpers helpers = callbacks.getHelpers();
-    private final IHttpRequestResponse baseRequestResponse;
+    private final MontoyaApi api;
+    private final TaskRepository taskRepository;
+    private final HttpRequestResponse requestResponse;
     private final UUID taskUUID;
 
-    public CloudURLs(IHttpRequestResponse baseRequestResponse, UUID taskUUID) {
-        this.baseRequestResponse = baseRequestResponse;
+    public CloudURLs(MontoyaApi api, HttpRequestResponse requestResponse, UUID taskUUID) {
+        this.api = api;
+        this.taskRepository = TaskRepository.getInstance();
+        this.requestResponse = requestResponse;
         this.taskUUID = taskUUID;
     }
 
     @Override
     public void run() {
-        BurpExtender.getTaskRepository().startTask(taskUUID);
+        taskRepository.startTask(taskUUID);
 
         // For reporting unique matches with markers
         List<byte[]> uniqueMatches = new ArrayList<>();
         StringBuilder uniqueMatchesSB = new StringBuilder();
 
-        String responseString = new String(baseRequestResponse.getResponse());
-        String responseBodyString = responseString.substring(helpers.analyzeResponse(baseRequestResponse.getResponse()).getBodyOffset());
+        String responseBody = requestResponse.response().bodyToString();
 
-        Matcher cloudURLsMatcher = CLOUD_URLS_REGEX.matcher(responseBodyString);
+        Matcher cloudURLsMatcher = CLOUD_URLS_REGEX.matcher(responseBody);
 
-        while (cloudURLsMatcher.find() && BurpExtender.isLoaded()) {
+        while (cloudURLsMatcher.find()) {
             uniqueMatches.add(cloudURLsMatcher.group().getBytes(StandardCharsets.UTF_8));
             appendFoundMatches(cloudURLsMatcher.group(), uniqueMatchesSB);
         }
 
-        reportFinding(baseRequestResponse, uniqueMatchesSB, uniqueMatches);
-
-        BurpExtender.getTaskRepository().completeTask(taskUUID);
-
+        reportFinding(uniqueMatchesSB, uniqueMatches);
+        taskRepository.completeTask(taskUUID);
     }
 
-    private static void reportFinding(IHttpRequestResponse baseRequestResponse, StringBuilder allMatchesSB, List<byte[]> uniqueMatches) {
+    private void reportFinding(StringBuilder allMatchesSB, List<byte[]> uniqueMatches) {
         if (allMatchesSB.length() > 0) {
             // Get markers of found Cloud URL Matches
-            List<int[]> allMatchesMarkers = Utilities.getMatches(baseRequestResponse.getResponse(), uniqueMatches);
+            List<int[]> allMatchesMarkers = Utilities.getMatches(requestResponse.response().toByteArray(), uniqueMatches);
 
             // report the issue
-            sendNewIssue(baseRequestResponse,
+            api.siteMap().add(CustomScanIssue.from(
+                    requestResponse,
                     "[JS Miner] Cloud Resources",
                     "The following cloud URLs were found in a static file.",
                     allMatchesSB.toString(),
                     allMatchesMarkers,
                     SEVERITY_INFORMATION,
                     CONFIDENCE_CERTAIN
-            );
+            ));
         }
     }
 }

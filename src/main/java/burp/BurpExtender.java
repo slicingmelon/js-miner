@@ -11,6 +11,7 @@ import burp.config.ExecutorServiceManager;
 import burp.config.ExtensionConfig;
 import burp.core.TaskRepository;
 import burp.core.ScannerBuilder;
+import burp.utils.Utilities;
 
 import javax.swing.*;
 import java.awt.event.ActionEvent;
@@ -28,8 +29,8 @@ public class BurpExtender implements BurpExtension {
     private final ExecutorServiceManager executorServiceManager = ExecutorServiceManager.getInstance();
     private final TaskRepository taskRepository = TaskRepository.getInstance();
     private final ExtensionConfig extensionConfig = ExtensionConfig.getInstance();
-    private static final String EXTENSION_NAME = "JS Miner-NG";
-    private static final String EXTENSION_VERSION = "2.0";
+    public static final String EXTENSION_NAME = "JS Miner-NG";
+    public static final String EXTENSION_VERSION = "2.0";
     private int taskCount = 0;
 
     public static MontoyaApi getApi() {
@@ -38,11 +39,20 @@ public class BurpExtender implements BurpExtension {
 
     @Override
     public void initialize(MontoyaApi api) {
-        this.api = api;
+        BurpExtender.api = api;
         api.extension().setName(EXTENSION_NAME);
         
+        // Initialize core components with API
+        TaskRepository.setApi(api);
+        Utilities.setApi(api);
+        
         // Register context menu
-        api.userInterface().registerContextMenuItemsProvider(this::createMenuItems);
+        api.userInterface().registerContextMenuItemsProvider(new ContextMenuItemsProvider() {
+            @Override
+            public List<MenuItem> provideMenuItems(ContextMenuEvent event) {
+                return createMenuItems(event);
+            }
+        });
         
         // Register HTTP handler for passive scanning
         api.http().registerHttpHandler(new HttpHandler() {

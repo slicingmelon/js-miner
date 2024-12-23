@@ -1,18 +1,24 @@
 package burp.core;
 
-import burp.BurpExtender;
+import burp.api.montoya.MontoyaApi;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static burp.utils.Constants.LOG_FORMAT;
 import static burp.utils.Constants.LOG_TASK_ID_PREFIX;
 
 public class TaskRepository {
     private static TaskRepository taskRepository = null;
-    private final List<Task> tasks = new ArrayList<>();
+    private static MontoyaApi api;
+    private final List<Task> tasks = new CopyOnWriteArrayList<>();
     private static final String LINE_SEPARATOR = System.lineSeparator();
+
+    public static void setApi(MontoyaApi api) {
+        TaskRepository.api = api;
+    }
 
     public static TaskRepository getInstance() {
         if (taskRepository == null)
@@ -121,7 +127,7 @@ public class TaskRepository {
 
     private static void logTask(Task task) {
         if (task.getId() != -1 && ExtensionConfig.getInstance().isVerboseLogging()) {
-            BurpExtender.api.logging().logToOutput(
+            api.logging().logToOutput(
                 String.format(LOG_FORMAT, 
                     "[" + task.getStatus() + "]", 
                     LOG_TASK_ID_PREFIX + task.getId(), 

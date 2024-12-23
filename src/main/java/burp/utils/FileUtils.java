@@ -1,6 +1,6 @@
 package burp.utils;
 
-import burp.BurpExtender;
+import burp.api.montoya.MontoyaApi;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -9,6 +9,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class FileUtils {
+    private static MontoyaApi api;
+    
+    public static void setApi(MontoyaApi api) {
+        FileUtils.api = api;
+    }
 
     public static boolean saveFile(String sourceFilePath, byte[] data, Path outputDirPath) {
         Path filePath = Paths.get(sourceFilePath);
@@ -27,7 +32,7 @@ public class FileUtils {
                 return true;
             }
         } catch (IOException e) {
-            BurpExtender.api.logging().logToError("Error saving file: " + e.getMessage());
+            api.logging().logToError("Error saving file: " + e.getMessage());
         }
         return false;
     }
@@ -50,10 +55,10 @@ public class FileUtils {
                 Utilities.createDirectoriesIfNotExist(trustedFile.getParentFile().toPath());
                 return trustedFile.toString();
             } else {
-                BurpExtender.api.logging().logToError("Path traversal attempt prevented");
+                api.logging().logToError("Path traversal attempt prevented");
             }
         } catch (IOException e) {
-            BurpExtender.api.logging().logToError("Error securing file path: " + e.getMessage());
+            api.logging().logToError("Error securing file path: " + e.getMessage());
         }
         
         return getTempDirPath(outputDirPath).toString();
