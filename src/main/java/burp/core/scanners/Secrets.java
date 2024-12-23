@@ -3,14 +3,18 @@ package burp.core.scanners;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
+import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
+import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
 import burp.utils.Utilities;
 import burp.core.TaskRepository;
+import burp.utils.CustomScanIssue;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import com.google.re2j.Matcher;
+import java.util.LinkedList;
 
 import static burp.utils.Constants.*;
 
@@ -29,115 +33,106 @@ public class Secrets implements Runnable {
 
     @Override
     public void run() {
-        taskRepository.startTask(taskUUID);
-        String responseBodyString = requestResponse.response().bodyToString();
+        try {
+            taskRepository.startTask(taskUUID);
+            String responseBodyString = requestResponse.response().bodyToString();
 
-        // Combined secrets
-        List<byte[]> uniqueMatchesLow = new ArrayList<>();
-        StringBuilder uniqueMatchesSBLow = new StringBuilder();
+            List<byte[]> uniqueMatchesLow = new ArrayList<>();
+            StringBuilder uniqueMatchesSBLow = new StringBuilder();
+            List<byte[]> uniqueMatchesHigh = new ArrayList<>();
+            StringBuilder uniqueMatchesSBHigh = new StringBuilder();
 
-        List<byte[]> uniqueMatchesHigh = new ArrayList<>();
-        StringBuilder uniqueMatchesSBHigh = new StringBuilder();
+            processSecretMatches(responseBodyString, uniqueMatchesLow, uniqueMatchesSBLow, 
+                               uniqueMatchesHigh, uniqueMatchesSBHigh);
+            processBasicAuthSecrets(responseBodyString, uniqueMatchesLow, uniqueMatchesSBLow, 
+                                  uniqueMatchesHigh, uniqueMatchesSBHigh);
 
-        // Process secrets regex matches
-        Matcher matcherSecrets = SECRETS_REGEX.matcher(responseBodyString);
-        while (matcherSecrets.find()) {
-            if (Utilities.isHighEntropy(matcherSecrets.group(20))) {
-                uniqueMatchesHigh.add(matcherSecrets.group().getBytes(StandardCharsets.UTF_8));
-                appendFoundMatches(matcherSecrets.group(), uniqueMatchesSBHigh);
-            } else {
-                if (isNotFalsePositive(matcherSecrets.group(20))) {
-                    uniqueMatchesLow.add(matcherSecrets.group().getBytes(StandardCharsets.UTF_8));
-                    appendFoundMatches(matcherSecrets.group(), uniqueMatchesSBLow);
-                }
-            }
+            reportFindings(uniqueMatchesSBLow, uniqueMatchesLow, uniqueMatchesSBHigh, uniqueMatchesHigh);
+            taskRepository.completeTask(taskUUID);
+        } catch (Exception e) {
+            api.logging().logToError("Error in Secrets scanner: " + e.getMessage());
+            taskRepository.failTask(taskUUID);
         }
-
-        // Process HTTP basic auth secrets
-        Matcher httpBasicAuthMatcher = HTTP_BASIC_AUTH_SECRETS.matcher(responseBodyString);
-        if (httpBasicAuthMatcher.find()) {
-            String base64String = httpBasicAuthMatcher.group(2);
-            try {
-                String decoded = api.utilities().base64Utils().decode(base64String).toString();
-                if (Utilities.isHighEntropy(decoded)) {
-                    uniqueMatchesHigh.add(httpBasicAuthMatcher.group().getBytes(StandardCharsets.UTF_8));
-                    appendFoundMatches(httpBasicAuthMatcher.group(), uniqueMatchesSBHigh);
-                } else {
-                    uniqueMatchesLow.add(httpBasicAuthMatcher.group().getBytes(StandardCharsets.UTF_8));
-                    appendFoundMatches(httpBasicAuthMatcher.group(), uniqueMatchesSBLow);
-                }
-            } catch (IllegalArgumentException e) {
-                // Not valid base64, skip
-                api.logging().logToError("Invalid base64 string found: " + e.getMessage());
-            }
-        }
-
-        reportFinding(uniqueMatchesSBLow, uniqueMatchesLow, uniqueMatchesSBHigh, uniqueMatchesHigh);
-        taskRepository.completeTask(taskUUID);
     }
 
-    private void reportFinding(StringBuilder uniqueMatchesSBLow, List<byte[]> uniqueMatchesLow,
-                             StringBuilder uniqueMatchesSBHigh, List<byte[]> uniqueMatchesHigh) {
+    private void processSecretMatches(String responseBodyString, 
+                                    List<byte[]> uniqueMatchesLow, StringBuilder uniqueMatchesSBLow,
+                                    List<byte[]> uniqueMatchesHigh, StringBuilder uniqueMatchesSBHigh) {
+        Matcher matcherSecrets = SECRETS_REGEX.matcher(responseBodyString);
+        while (matcherSecrets.find()) {
+            String match = matcherSecrets.group();
+            String potentialSecret = matcherSecrets.group(20);
+            
+            if (Utilities.isHighEntropy(potentialSecret)) {
+                uniqueMatchesHigh.add(match.getBytes(StandardCharsets.UTF_8));
+                appendFoundMatches(match, uniqueMatchesSBHigh);
+            } else if (isNotFalsePositive(potentialSecret)) {
+                uniqueMatchesLow.add(match.getBytes(StandardCharsets.UTF_8));
+                appendFoundMatches(match, uniqueMatchesSBLow);
+            }
+        }
+    }
+
+    private void processBasicAuthSecrets(String responseBodyString,
+                                       List<byte[]> uniqueMatchesLow, StringBuilder uniqueMatchesSBLow,
+                                       List<byte[]> uniqueMatchesHigh, StringBuilder uniqueMatchesSBHigh) {
+        Matcher httpBasicAuthMatcher = HTTP_BASIC_AUTH_SECRETS.matcher(responseBodyString);
+        while (httpBasicAuthMatcher.find()) {
+            try {
+                String base64String = httpBasicAuthMatcher.group(2);
+                String decoded = api.utilities().base64Utils().decode(base64String).toString();
+                String fullMatch = httpBasicAuthMatcher.group();
+
+                if (Utilities.isHighEntropy(decoded)) {
+                    uniqueMatchesHigh.add(fullMatch.getBytes(StandardCharsets.UTF_8));
+                    appendFoundMatches(fullMatch, uniqueMatchesSBHigh);
+                } else {
+                    uniqueMatchesLow.add(fullMatch.getBytes(StandardCharsets.UTF_8));
+                    appendFoundMatches(fullMatch, uniqueMatchesSBLow);
+                }
+            } catch (IllegalArgumentException e) {
+                api.logging().logToError("Invalid base64 in Basic Auth: " + e.getMessage());
+            }
+        }
+    }
+
+    private void reportFindings(StringBuilder uniqueMatchesSBLow, List<byte[]> uniqueMatchesLow,
+                              StringBuilder uniqueMatchesSBHigh, List<byte[]> uniqueMatchesHigh) {
         if (uniqueMatchesSBHigh.length() > 0) {
-            List<int[]> secretsMatchesHigh = Utilities.getMatches(requestResponse.response().body(), uniqueMatchesHigh);
+            List<int[]> responseHighlights = Utilities.getMatches(requestResponse.response().toByteArray(), uniqueMatchesHigh);
             
-            AuditIssue issue = AuditIssue.auditIssue(
-                    "[JS Miner] Secrets / Credentials",
-                    "The following secrets (with High entropy) were found in a static file.",
-                    "High entropy strings that match common secret patterns were identified in the response. " +
-                    "These could represent hardcoded credentials or API keys.",
-                    requestResponse.request().url(),
-                    AuditIssueSeverity.MEDIUM,
-                    AuditIssueConfidence.FIRM,
-                    "Review the identified strings and ensure no sensitive data is exposed.",
+            api.siteMap().add(CustomScanIssue.from(
+                    requestResponse,
+                    "[JS Miner] High Entropy Secrets",
+                    "High entropy secrets found in static file",
                     uniqueMatchesSBHigh.toString(),
-                    "Remove any hardcoded secrets from the code and store them securely.",
-                    List.of(requestResponse)
-            );
-            
-            api.siteMap().add(issue);
+                    "High",
+                    "Firm"
+            ));
         }
 
         if (uniqueMatchesSBLow.length() > 0) {
-            List<int[]> secretsMatchesLow = getMatches(requestResponse.response().body(), uniqueMatchesLow);
+            List<int[]> responseHighlights = Utilities.getMatches(requestResponse.response().toByteArray(), uniqueMatchesLow);
             
-            AuditIssue issue = AuditIssue.auditIssue(
-                    "[JS Miner] Secrets / Credentials",
-                    "The following secrets (with Low entropy) were found in a static file.",
-                    "Potential secrets matching common patterns were identified in the response. " +
-                    "These could represent hardcoded credentials or configuration values.",
-                    requestResponse.request().url(),
-                    AuditIssue.AuditIssueSeverity.MEDIUM,
-                    AuditIssue.AuditIssueConfidence.TENTATIVE,
-                    "Review the identified strings to determine if they contain sensitive data.",
+            api.siteMap().add(CustomScanIssue.from(
+                    requestResponse,
+                    "[JS Miner] Potential Secrets",
+                    "Potential secrets found in static file",
                     uniqueMatchesSBLow.toString(),
-                    "If confirmed as secrets, remove them from the code and store them securely.",
-                    List.of(requestResponse)
-            );
-            
-            api.siteMap().add(issue);
+                    "Medium",
+                    "Tentative"
+            ));
         }
     }
 
     private static boolean isNotFalsePositive(String secret) {
         String[] falsePositives = {"basic", "bearer", "token"};
-        secret = secret.replaceAll("\\s", "")
-                .replace("\t", "")
-                .replace("\r", "")
-                .replace("\n", "")
-                .replace("*", "");
-                
-        if (secret.length() <= 4) {
-            return false;
-        }
-
-        for (String fp: falsePositives) {
-            if (secret.equalsIgnoreCase(fp)) {
-                return false;
-            }
-        }
-
-        return true;
+        final String cleanSecret = secret.replaceAll("[\\s\\t\\r\\n*]", "");
+        
+        if (cleanSecret.length() <= 4) return false;
+        
+        return !List.of(falsePositives).stream()
+                .anyMatch(fp -> cleanSecret.equalsIgnoreCase(fp));
     }
 
     private void appendFoundMatches(String match, StringBuilder sb) {
