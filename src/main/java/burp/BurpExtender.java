@@ -86,31 +86,29 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
             return List.of();
         }
         
-        List<MenuItem> menuItems = new ArrayList<>();
         List<HttpRequestResponse> selectedMessages = event.selectedRequestResponses();
+        List<MenuItem> menuItems = new ArrayList<>();
         
-        // Main menu
-        MenuItem mainMenuItem = MenuItem.of(
-            "JS Miner-NG",
-            List.of(
-                MenuItem.of("Run JS Auto-Mine (check everything)", 
-                    e -> runAutoMine(selectedMessages)),
-                Menu.of("Scans", createScanMenuItems(selectedMessages)),
-                Menu.of("Config", createConfigMenuItems()),
-                Menu.of("Log", createLogMenuItems())
-            )
-        );
+        // Main menu items
+        menuItems.add(MenuItem.basicMenuItem("Run JS Auto-Mine (check everything)")
+            .withAction(() -> runAutoMine(selectedMessages)));
         
-        return List.of(mainMenuItem);
+        // Create submenus
+        List<MenuItem> scanMenuItems = createScanMenuItems(selectedMessages);
+        List<MenuItem> configMenuItems = createConfigMenuItems();
+        List<MenuItem> logMenuItems = createLogMenuItems();
+        
+        // Add submenus as BasicMenuItems
+        menuItems.add(Menu.menu("Scans").withMenuItems(scanMenuItems));
+        menuItems.add(Menu.menu("Config").withMenuItems(configMenuItems));
+        menuItems.add(Menu.menu("Log").withMenuItems(logMenuItems));
+        
+        return menuItems;
     }
 
     private List<MenuItem> createLogMenuItems() {
-        List<MenuItem> menuItems = new ArrayList<>();
-        menuItems.add(MenuItem.of(
-            "Clear Log",
-            e -> taskRepository.clearTasks()
-        ));
-        return menuItems;
+        return List.of(MenuItem.basicMenuItem("Clear Log")
+            .withAction(() -> taskRepository.clearTasks()));
     }
 
     private void runAutoMine(List<HttpRequestResponse> messages) {
@@ -144,25 +142,28 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
             b -> b.runAllPassiveScans().timeStamp(Instant.now().toEpochMilli()));
         addScanMenuItem(menuItems, "JS source mapper (active)", messages, 
             ScannerBuilder.Builder::scanSourceMapper);
-        addScanMenuItem(menuItems, "Secrets", messages, ScannerBuilder.Builder::scanSecrets);
-        addScanMenuItem(menuItems, "Dependency Confusion", messages, ScannerBuilder.Builder::scanDependencyConfusion);
-        addScanMenuItem(menuItems, "SubDomains", messages, ScannerBuilder.Builder::scanSubdomains);
-        addScanMenuItem(menuItems, "Cloud URLs", messages, ScannerBuilder.Builder::scanCloudURLs);
+        addScanMenuItem(menuItems, "Secrets", messages, 
+            ScannerBuilder.Builder::scanSecrets);
+        addScanMenuItem(menuItems, "Dependency Confusion", messages, 
+            ScannerBuilder.Builder::scanDependencyConfusion);
+        addScanMenuItem(menuItems, "SubDomains", messages, 
+            ScannerBuilder.Builder::scanSubdomains);
+        addScanMenuItem(menuItems, "Cloud URLs", messages, 
+            ScannerBuilder.Builder::scanCloudURLs);
         addScanMenuItem(menuItems, "Inline B64 JS Source Maps", messages, 
             b -> b.scanSourceMapper().timeStamp(Instant.now().toEpochMilli()));
         addScanMenuItem(menuItems, "Dump Static Files", messages, 
             b -> b.dumpStaticFiles().timeStamp(Instant.now().toEpochMilli()));
-        addScanMenuItem(menuItems, "API Endpoints Finder", messages, ScannerBuilder.Builder::scanEndpoints);
+        addScanMenuItem(menuItems, "API Endpoints Finder", messages, 
+            ScannerBuilder.Builder::scanEndpoints);
         
         return menuItems;
     }
 
     private void addScanMenuItem(List<MenuItem> menuItems, String text, List<HttpRequestResponse> messages, 
             Function<ScannerBuilder.Builder, ScannerBuilder.Builder> scanType) {
-        menuItems.add(MenuItem.of(
-            text,
-            e -> runScan(messages, scanType)
-        ));
+        menuItems.add(MenuItem.basicMenuItem(text)
+            .withAction(() -> runScan(messages, scanType)));
     }
 
     private void runScan(List<HttpRequestResponse> messages, 
@@ -177,22 +178,16 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
 
     private List<MenuItem> createConfigMenuItems() {
         return List.of(
-            MenuItem.of(
-                extensionConfig.loggingConfigMenuItemText(),
-                "Toggle verbose logging",
-                e -> {
+            MenuItem.basicMenuItem(extensionConfig.loggingConfigMenuItemText())
+                .withAction(() -> {
                     extensionConfig.toggleLogging();
                     updateExtensionConfig();
-                }
-            ),
-            MenuItem.of(
-                extensionConfig.passiveConfigMenuItemText(),
-                "Toggle passive scanning",
-                e -> {
+                }),
+            MenuItem.basicMenuItem(extensionConfig.passiveConfigMenuItemText())
+                .withAction(() -> {
                     extensionConfig.togglePassiveScans();
                     updateExtensionConfig();
-                }
-            )
+                })
         );
     }
 

@@ -2,6 +2,7 @@ package burp.core;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.http.handler.HttpResponseReceived;
 import burp.core.scanners.*;
 import burp.utils.Utilities;
 import burp.config.ExtensionConfig;
@@ -41,7 +42,7 @@ public class ScannerBuilder {
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
     public static class Builder {
-        private final HttpRequestResponse[] requestResponses;
+        private HttpRequestResponse[] requestResponses;
         private final MontoyaApi api;
         private long timeStamp = Instant.now().toEpochMilli();
         private int taskId = -1;
@@ -57,6 +58,20 @@ public class ScannerBuilder {
         public Builder(MontoyaApi api, HttpRequestResponse[] requestResponses) {
             this.api = api;
             this.requestResponses = requestResponses;
+        }
+
+        public Builder(MontoyaApi api) {
+            this.api = api;
+            this.requestResponses = new HttpRequestResponse[0];
+        }
+
+        public Builder withHttpResponse(HttpResponseReceived response) {
+            HttpRequestResponse requestResponse = HttpRequestResponse.httpRequestResponse(
+                response.initiatingRequest(),
+                response
+            );
+            this.requestResponses = new HttpRequestResponse[]{requestResponse};
+            return this;
         }
 
         public Builder taskId(int id) {
