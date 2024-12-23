@@ -137,4 +137,9 @@ public class TaskRepository {
             );
         }
     }
+
+    public void clearTasks() {
+        tasks.clear();
+        api.logging().logToOutput("Task log cleared");
+    }
 }
