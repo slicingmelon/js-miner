@@ -7,11 +7,12 @@ import burp.api.montoya.http.handler.*;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import burp.api.montoya.ui.contextmenu.*;
+import burp.api.montoya.ui.menu.Menu;
+import burp.api.montoya.ui.menu.MenuItem;
 import burp.config.ExecutorServiceManager;
 import burp.config.ExtensionConfig;
 import burp.core.TaskRepository;
 import burp.core.ScannerBuilder;
-import burp.utils.Utilities;
 
 import javax.swing.*;
 import java.awt.event.ActionEvent;
@@ -25,26 +26,19 @@ import static burp.utils.Constants.SETTING_BURP_PASSIVE;
 import static burp.utils.Constants.SETTING_VERBOSE_LOGGING;
 
 public class BurpExtender implements BurpExtension {
-    private static MontoyaApi api;
-    private final ExecutorServiceManager executorServiceManager = ExecutorServiceManager.getInstance();
-    private final TaskRepository taskRepository = TaskRepository.getInstance();
-    private final ExtensionConfig extensionConfig = ExtensionConfig.getInstance();
+    public static MontoyaApi api;
+    private static final ExecutorServiceManager executorServiceManager = ExecutorServiceManager.getInstance();
+    private static final TaskRepository taskRepository = TaskRepository.getInstance();
+    private static final ExtensionConfig extensionConfig = ExtensionConfig.getInstance();
+    private static boolean loaded = true;
     public static final String EXTENSION_NAME = "JS Miner-NG";
-    public static final String EXTENSION_VERSION = "2.0";
+    private static final String EXTENSION_VERSION = "2.0";
     private int taskCount = 0;
-
-    public static MontoyaApi getApi() {
-        return api;
-    }
 
     @Override
     public void initialize(MontoyaApi api) {
         BurpExtender.api = api;
         api.extension().setName(EXTENSION_NAME);
-        
-        // Initialize core components with API
-        TaskRepository.setApi(api);
-        Utilities.setApi(api);
         
         // Register context menu
         api.userInterface().registerContextMenuItemsProvider(new ContextMenuItemsProvider() {
@@ -89,27 +83,24 @@ public class BurpExtender implements BurpExtension {
             
             // Main menu
             menuItems.add(MenuItem.builder()
-                .text("Run JS Auto-Mine (check everything)")
                 .action(e -> runAutoMine(selectedMessages))
+                .text("Run JS Auto-Mine (check everything)")
                 .build());
                 
             // Scans submenu
-            Menu scanMenu = Menu.builder()
-                .text("Scans")
+            Menu scanMenu = Menu.builder().text("Scans")
                 .menuItems(createScanMenuItems(selectedMessages))
                 .build();
             menuItems.add(scanMenu);
             
             // Config submenu
-            Menu configMenu = Menu.builder()
-                .text("Config")
+            Menu configMenu = Menu.builder().text("Config")
                 .menuItems(createConfigMenuItems())
                 .build();
             menuItems.add(configMenu);
             
             // Log submenu
-            Menu logMenu = Menu.builder()
-                .text("Log")
+            Menu logMenu = Menu.builder().text("Log")
                 .menuItems(createLogMenuItems())
                 .build();
             menuItems.add(logMenu);
@@ -121,7 +112,7 @@ public class BurpExtender implements BurpExtension {
     private void runAutoMine(List<HttpRequestResponse> messages) {
         new Thread(() -> {
             long ts = Instant.now().toEpochMilli();
-            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(api, messages.toArray(new HttpRequestResponse[0]))
+            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
                 .runAllPassiveScans()
                 .taskId(++taskCount)
                 .timeStamp(ts)
@@ -132,9 +123,10 @@ public class BurpExtender implements BurpExtension {
 
     private void doPassiveScan(HttpResponseReceived response) {
         new Thread(() -> {
-            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(api, new HttpRequestResponse[]{response})
+            long ts = Instant.now().toEpochMilli();
+            ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(response)
                     .runAllPassiveScans()
-                    .timeStamp(Instant.now().toEpochMilli())
+                    .timeStamp(ts)
                     .build();
             scannerBuilder.runScans();
         }).start();
@@ -158,13 +150,13 @@ public class BurpExtender implements BurpExtension {
 
     @Override
     public void extensionUnloaded() {
-        setLoaded(false);
         taskRepository.destroy();
-        api.logging().logToOutput("[*] Sending shutdown signal to terminate any running threads..");
+        api.logging().logToOutput("Sending shutdown signal to terminate any running threads...");
         executorServiceManager.getExecutorService().shutdownNow();
-        api.logging().logToOutput("[*] Extension was unloaded.");
+        api.logging().logToOutput("Extension was unloaded");
         api.logging().logToOutput("=================================================");
     }
+
 
     /*
      *  Context menu items
@@ -351,25 +343,60 @@ public class BurpExtender implements BurpExtension {
         // All passive scans
         menuItems.add(MenuItem.builder()
             .text("Run all passive scans")
-            .action(e -> runScan(messages, ScannerBuilder.Builder::runAllPassiveScans))
+            .action(e -> {
+                new Thread(() -> {
+                    long ts = Instant.now().toEpochMilli();
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
+                        .runAllPassiveScans()
+                        .taskId(++taskCount)
+                        .timeStamp(ts)
+                        .build();
+                    scannerBuilder.runScans();
+                }).start();
+            })
             .build());
             
         // JS source mapper
+        // Source Mapper
         menuItems.add(MenuItem.builder()
+            .action(e -> {
+                new Thread(() -> {
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
+                        .scanSourceMapFiles()
+                        .taskId(++taskCount)
+                        .build();
+                    scannerBuilder.runScans();
+                }).start();
+            })
             .text("JS source mapper (active)")
-            .action(e -> runScan(messages, ScannerBuilder.Builder::activeSourceMapperScan))
             .build());
             
         // Secrets scan
         menuItems.add(MenuItem.builder()
+            .action(e -> {
+                new Thread(() -> {
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
+                        .scanSecrets()
+                        .taskId(++taskCount)
+                        .build();
+                    scannerBuilder.runScans();
+                }).start();
+            })
             .text("Secrets")
-            .action(e -> runScan(messages, ScannerBuilder.Builder::scanSecrets))
             .build());
             
         // Dependency Confusion
         menuItems.add(MenuItem.builder()
+            .action(e -> {
+                new Thread(() -> {
+                    ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(messages.toArray(new HttpRequestResponse[0]))
+                        .scanDependencyConfusion()
+                        .taskId(++taskCount)
+                        .build();
+                    scannerBuilder.runScans();
+                }).start();
+            })
             .text("Dependency Confusion")
-            .action(e -> runScan(messages, ScannerBuilder.Builder::scanDependencyConfusion))
             .build());
             
         // SubDomains
