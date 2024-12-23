@@ -159,7 +159,12 @@ public final class Utilities {
     public static byte[] getHTTPResponseBodyHash(HttpRequestResponse requestResponse) {
         if (requestResponse.response() != null) {
             byte[] responseBodyBytes = requestResponse.response().body().getBytes();
-            return api.utilities().cryptoUtils().digest("SHA-256", responseBodyBytes);
+            try {
+                return java.security.MessageDigest.getInstance("SHA-256").digest(responseBodyBytes);
+            } catch (java.security.NoSuchAlgorithmException e) {
+                api.logging().logToError("Error creating SHA-256 hash: " + e.getMessage());
+                return new byte[0];
+            }
         }
         return new byte[0];
     }
