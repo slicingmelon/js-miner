@@ -5,8 +5,9 @@ import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
 
-import java.net.URL;
 import java.util.List;
+
+import static burp.api.montoya.scanner.audit.issues.AuditIssue.auditIssue;
 
 public class CustomScanIssue {
     public static AuditIssue from(
@@ -17,19 +18,17 @@ public class CustomScanIssue {
             String severity,
             String confidence) {
             
-        AuditIssueSeverity issueSeverity = convertSeverity(severity);
-        AuditIssueConfidence issueConfidence = convertConfidence(confidence);
-        
-        return AuditIssue.auditIssue(
+        return auditIssue(
                 name,
                 detail,
                 background,
                 requestResponse.request().url(),
-                issueSeverity,
-                issueConfidence,
-                null, // remediation background
-                null, // remediation detail
-                List.of(requestResponse)
+                convertSeverity(severity),
+                convertConfidence(confidence),
+                null,
+                null,
+                convertSeverity(severity),
+                requestResponse
         );
     }
     
