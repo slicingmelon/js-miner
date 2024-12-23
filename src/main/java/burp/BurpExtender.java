@@ -14,7 +14,7 @@ import burp.config.ExecutorServiceManager;
 import burp.config.ExtensionConfig;
 import burp.core.TaskRepository;
 import burp.core.ScannerBuilder;
-
+import burp.utils.Utilities;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +43,7 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
         
         // Initialize components
         TaskRepository.setApi(api);
+        Utilities.setApi(api);  // Add this line
         
         // Register unloading handler
         api.extension().registerUnloadingHandler(() -> {

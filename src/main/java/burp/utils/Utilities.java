@@ -12,7 +12,6 @@ import java.net.URI;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import java.util.HashSet;
 import java.util.Set;
-import burp.api.montoya.utilities.CryptoUtils;
 
 public final class Utilities {
     private static MontoyaApi api;

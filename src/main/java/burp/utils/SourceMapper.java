@@ -7,6 +7,7 @@ import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Path;
+import burp.utils.Utilities;
 
 public class SourceMapper {
     private final MontoyaApi api;
@@ -15,7 +16,7 @@ public class SourceMapper {
     private final Path outputDirPath;
 
     public SourceMapper(HttpRequestResponse requestResponse, String jsonMapFile, Path outputDirPath) {
-        this.api = BurpExtender.getApi();
+        this.api = Utilities.api;
         this.requestResponse = requestResponse;
         this.jsonMapFile = jsonMapFile;
         this.outputDirPath = outputDirPath;
