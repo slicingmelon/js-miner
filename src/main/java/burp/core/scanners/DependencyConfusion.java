@@ -101,17 +101,20 @@ public class DependencyConfusion implements Runnable {
 
     private boolean isConnectionOK() {
         try {
-            HttpRequest npmRequest = HttpRequest.httpRequestFromUrl("https://www.npmjs.com/robots.txt");
-            HttpRequest registryRequest = HttpRequest.httpRequestFromUrl("https://registry.npmjs.org/");
-            
+            URL npmUrl = new URL("https://www.npmjs.com/robots.txt");
+            URL registryUrl = new URL("https://registry.npmjs.org/");
+
+            HttpRequest npmRequest = HttpRequest.httpRequestFromUrl(npmUrl.toString());
+            HttpRequest registryRequest = HttpRequest.httpRequestFromUrl(registryUrl.toString());
+
             HttpRequestResponse npmResponse = api.http().sendRequest(npmRequest);
             HttpRequestResponse registryResponse = api.http().sendRequest(registryRequest);
 
             return npmResponse.response() != null && registryResponse.response() != null;
         } catch (MalformedURLException e) {
             api.logging().logToError("Error checking connection: " + e.getMessage());
+            return false;
         }
-        return false;
     }
 
     private void reportDependencies(String dependenciesList, List<int[]> depMatches) {

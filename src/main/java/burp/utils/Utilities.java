@@ -1,6 +1,7 @@
 package burp.utils;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.core.ByteArray;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.ArrayList;
@@ -60,22 +61,28 @@ public final class Utilities {
         }
     }
     
+    /**
+     * Finds all occurrences of unique matches in a response and returns their positions
+     * @param response The response to search in as ByteArray
+     * @param uniqueMatches List of byte arrays to search for
+     * @return List of int arrays containing start and end positions of matches
+     */
     public static List<int[]> getMatches(ByteArray response, List<byte[]> uniqueMatches) {
         List<int[]> matches = new ArrayList<>();
-        byte[] responseBytes = response.getBytes();
 
         for (byte[] match : uniqueMatches) {
+            ByteArray searchTerm = ByteArray.byteArray(match);
             int start = 0;
-            while (start < responseBytes.length) {
-                int foundIndex = api.utilities().byteUtils().indexOf(responseBytes, match, false, start, responseBytes.length);
+            
+            while (start < response.length()) {
+                int foundIndex = response.indexOf(searchTerm, false, start, response.length());
                 if (foundIndex == -1) break;
                 
-                matches.add(new int[]{foundIndex, foundIndex + match.length});
-                start = foundIndex + match.length;
+                matches.add(new int[]{foundIndex, foundIndex + searchTerm.length()});
+                start = foundIndex + searchTerm.length();
             }
         }
 
-        // Sort matches by start index using primitive comparison
         matches.sort((a, b) -> Integer.compare(a[0], b[0]));
 
         // Fix overlapping offsets
@@ -86,5 +93,9 @@ public final class Utilities {
         }
 
         return matches;
+    }
+    
+    public static List<int[]> getMatches(ByteArray response, byte[] match) {
+        return getMatches(response, List.of(match));
     }
 }
