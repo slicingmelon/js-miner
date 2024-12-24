@@ -58,42 +58,71 @@ public class Secrets implements Runnable {
     private void processSecretMatches(String responseBodyString, 
                                     List<byte[]> uniqueMatchesLow, StringBuilder uniqueMatchesSBLow,
                                     List<byte[]> uniqueMatchesHigh, StringBuilder uniqueMatchesSBHigh) {
+        api.logging().logToOutput("[Debug] Starting secrets scan for: " + requestResponse.request().url());
+        api.logging().logToOutput("[Debug] Response body length: " + responseBodyString.length());
+        
         Matcher matcherSecrets = SECRETS_REGEX.matcher(responseBodyString);
+        int matchCount = 0;
+        
         while (matcherSecrets.find()) {
+            matchCount++;
             String match = matcherSecrets.group();
             String potentialSecret = matcherSecrets.group(20);
             
+            api.logging().logToOutput("[Debug] Found potential match #" + matchCount + ": " + match);
+            api.logging().logToOutput("[Debug] Extracted secret value: " + potentialSecret);
+            
             if (Utilities.isHighEntropy(potentialSecret)) {
+                api.logging().logToOutput("[Debug] Classified as high entropy secret");
                 uniqueMatchesHigh.add(match.getBytes(StandardCharsets.UTF_8));
                 appendFoundMatches(match, uniqueMatchesSBHigh);
             } else if (isNotFalsePositive(potentialSecret)) {
+                api.logging().logToOutput("[Debug] Classified as low entropy secret");
                 uniqueMatchesLow.add(match.getBytes(StandardCharsets.UTF_8));
                 appendFoundMatches(match, uniqueMatchesSBLow);
+            } else {
+                api.logging().logToOutput("[Debug] Discarded as false positive");
             }
         }
+        
+        api.logging().logToOutput("[Debug] Completed secrets scan. Found " + matchCount + " potential matches");
+        api.logging().logToOutput("[Debug] High entropy matches: " + uniqueMatchesHigh.size());
+        api.logging().logToOutput("[Debug] Low entropy matches: " + uniqueMatchesLow.size());
     }
 
     private void processBasicAuthSecrets(String responseBodyString,
                                        List<byte[]> uniqueMatchesLow, StringBuilder uniqueMatchesSBLow,
                                        List<byte[]> uniqueMatchesHigh, StringBuilder uniqueMatchesSBHigh) {
+        api.logging().logToOutput("[Debug] Starting basic auth scan");
         Matcher httpBasicAuthMatcher = HTTP_BASIC_AUTH_SECRETS.matcher(responseBodyString);
+        int matchCount = 0;
+        
         while (httpBasicAuthMatcher.find()) {
+            matchCount++;
             try {
                 String base64String = httpBasicAuthMatcher.group(2);
                 String decoded = api.utilities().base64Utils().decode(base64String).toString();
                 String fullMatch = httpBasicAuthMatcher.group();
+                
+                api.logging().logToOutput("[Debug] Found basic auth match #" + matchCount);
+                api.logging().logToOutput("[Debug] Base64 value: " + base64String);
+                api.logging().logToOutput("[Debug] Decoded value: " + decoded);
 
                 if (Utilities.isHighEntropy(decoded)) {
+                    api.logging().logToOutput("[Debug] Classified as high entropy basic auth");
                     uniqueMatchesHigh.add(fullMatch.getBytes(StandardCharsets.UTF_8));
                     appendFoundMatches(fullMatch, uniqueMatchesSBHigh);
                 } else {
+                    api.logging().logToOutput("[Debug] Classified as low entropy basic auth");
                     uniqueMatchesLow.add(fullMatch.getBytes(StandardCharsets.UTF_8));
                     appendFoundMatches(fullMatch, uniqueMatchesSBLow);
                 }
             } catch (IllegalArgumentException e) {
-                api.logging().logToError("Invalid base64 in Basic Auth: " + e.getMessage());
+                api.logging().logToError("[Debug] Invalid base64 in Basic Auth: " + e.getMessage());
             }
         }
+        
+        api.logging().logToOutput("[Debug] Completed basic auth scan. Found " + matchCount + " matches");
     }
 
     private void reportFindings(StringBuilder uniqueMatchesSBLow, List<byte[]> uniqueMatchesLow,
