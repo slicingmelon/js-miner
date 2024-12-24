@@ -5,8 +5,6 @@ import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
 
-import java.util.List;
-
 import static burp.api.montoya.scanner.audit.issues.AuditIssue.auditIssue;
 
 public class CustomScanIssue {
