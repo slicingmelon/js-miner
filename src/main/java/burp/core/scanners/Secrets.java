@@ -8,6 +8,8 @@ import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
 import burp.utils.Utilities;
 import burp.core.TaskRepository;
 import burp.utils.CustomScanIssue;
+import burp.api.montoya.core.Marker;
+import java.util.ArrayList;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -129,9 +131,15 @@ public class Secrets implements Runnable {
                               StringBuilder uniqueMatchesSBHigh, List<byte[]> uniqueMatchesHigh) {
         if (uniqueMatchesSBHigh.length() > 0) {
             List<int[]> responseHighlights = Utilities.getMatches(requestResponse.response().toByteArray(), uniqueMatchesHigh);
+            List<Marker> markers = new ArrayList<>();
+            
+            // Convert int[] positions to Markers
+            for (int[] highlight : responseHighlights) {
+                markers.add(Marker.marker(highlight[0], highlight[1]));
+            }
             
             api.siteMap().add(CustomScanIssue.from(
-                    requestResponse,
+                    requestResponse.withResponseMarkers(markers),
                     "[JS Miner-NG] High Entropy Secrets",
                     "High entropy secrets found in static file",
                     uniqueMatchesSBHigh.toString(),
@@ -142,14 +150,20 @@ public class Secrets implements Runnable {
 
         if (uniqueMatchesSBLow.length() > 0) {
             List<int[]> responseHighlights = Utilities.getMatches(requestResponse.response().toByteArray(), uniqueMatchesLow);
+            List<Marker> markers = new ArrayList<>();
+            
+            // Convert int[] positions to Markers
+            for (int[] highlight : responseHighlights) {
+                markers.add(Marker.marker(highlight[0], highlight[1]));
+            }
             
             api.siteMap().add(CustomScanIssue.from(
-                    requestResponse,
+                    requestResponse.withResponseMarkers(markers),
                     "[JS Miner-NG] Potential Secrets",
                     "Potential secrets found in static file",
                     uniqueMatchesSBLow.toString(),
                     "Medium",
-                    "Tentative"
+                    "Firm"
             ));
         }
     }
