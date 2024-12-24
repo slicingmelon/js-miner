@@ -27,7 +27,7 @@ import static burp.utils.Constants.SETTING_BURP_PASSIVE;
 import static burp.utils.Constants.SETTING_VERBOSE_LOGGING;
 
 public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
-    private final MontoyaApi api;
+    private MontoyaApi api;
     private static final ExecutorServiceManager executorServiceManager = ExecutorServiceManager.getInstance();
     private static final TaskRepository taskRepository = TaskRepository.getInstance();
     private static final ExtensionConfig extensionConfig = ExtensionConfig.getInstance();
@@ -35,19 +35,20 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
     private static final String EXTENSION_VERSION = "2.0";
     private int taskCount = 0;
 
-    public BurpExtender(MontoyaApi api) {
-        this.api = api;
+    // Required no-args constructor
+    public BurpExtender() {
     }
 
     @Override
     public void initialize(MontoyaApi api) {
+        this.api = api;
         api.extension().setName(EXTENSION_NAME);
         
         // Initialize components
         TaskRepository.setApi(api);
         Utilities.setApi(api);
         
-        // Register context menu
+        // Register this class as the context menu provider
         api.userInterface().registerContextMenuItemsProvider(this);
         
         // Register unloading handler
