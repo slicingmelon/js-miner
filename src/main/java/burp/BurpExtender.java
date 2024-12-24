@@ -25,8 +25,8 @@ public class BurpExtender implements IBurpExtender, IContextMenuFactory, IExtens
     private static boolean loaded = true;
     public static PrintWriter mStdOut;
     public static PrintWriter mStdErr;
-    public static final String EXTENSION_NAME = "JS Miner";
-    private static final String EXTENSION_VERSION = "1.16";
+    public static final String EXTENSION_NAME = "JS Miner[legacy]";
+    private static final String EXTENSION_VERSION = "2.0-legacy";
     private int taskCount = 0; // counter for invoked tasks through the menu items context (Not for Burp's passive scan)
 
     // Exposing callbacks for use in other classes

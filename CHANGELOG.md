@@ -1,6 +1,9 @@
 # Burp JS-Miner Changelog
 Notable changes in JS-Miner releases. Other code improvements that usually happen with every release are not mentioned.
 
+## [2.0][legacy] - 2024-12-23
+- Forked first time (working on legacy version).
+  
 ## [1.16] - 2023-05-30
 - Added http-basic auth scan to "Secrets" scanner.
 
