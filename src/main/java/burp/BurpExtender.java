@@ -205,6 +205,7 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
             ScannerBuilder scannerBuilder = new ScannerBuilder.Builder(api)
                 .withHttpResponse(response)
                 .runAllPassiveScans()
+                .taskId(++taskCount)
                 .timeStamp(Instant.now().toEpochMilli())
                 .build();
             scannerBuilder.runScans();

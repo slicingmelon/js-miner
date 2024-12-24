@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ThreadLocalRandom;
 
 import static burp.utils.Constants.*;
 
@@ -75,7 +76,7 @@ public class ScannerBuilder {
         }
 
         public Builder taskId(int id) {
-            taskId = id;
+            this.taskId = id;
             return this;
         }
 
@@ -138,7 +139,8 @@ public class ScannerBuilder {
     private ScannerBuilder(Builder builder) {
         this.api = builder.api;
         this.requestResponses = builder.requestResponses;
-        this.taskId = builder.taskId;
+        this.taskId = (builder.taskId > 0) ? builder.taskId : 
+                      ThreadLocalRandom.current().nextInt(1, Integer.MAX_VALUE);
         this.timeStamp = builder.timeStamp;
         this.scanSecrets = builder.scanSecrets;
         this.scanDependencyConfusion = builder.scanDependencyConfusion;

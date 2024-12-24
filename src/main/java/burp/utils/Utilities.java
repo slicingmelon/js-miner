@@ -81,24 +81,46 @@ public final class Utilities {
 
         for (byte[] match : uniqueMatches) {
             ByteArray searchTerm = ByteArray.byteArray(match);
+            
+            // First check if there are any matches at all
+            int matchCount = response.countMatches(searchTerm);
+            if (matchCount == 0) continue;
+            
+            // Pre-allocate capacity based on known match count
+            List<int[]> termMatches = new ArrayList<>(matchCount);
             int start = 0;
             
             while (start < response.length()) {
                 int foundIndex = response.indexOf(searchTerm, false, start, response.length());
                 if (foundIndex == -1) break;
                 
-                matches.add(new int[]{foundIndex, foundIndex + searchTerm.length()});
+                termMatches.add(new int[]{foundIndex, foundIndex + searchTerm.length()});
                 start = foundIndex + searchTerm.length();
             }
+            
+            matches.addAll(termMatches);
         }
 
+        // Sort all matches by start position
         matches.sort((a, b) -> Integer.compare(a[0], b[0]));
 
-        // Fix overlapping offsets
-        for (int i = 0; i < matches.size() - 1; i++) {
-            if (matches.get(i)[1] > matches.get(i + 1)[0]) {
-                matches.set(i, new int[]{matches.get(i)[0], matches.get(i + 1)[0]});
+        // Merge overlapping matches
+        if (!matches.isEmpty()) {
+            List<int[]> mergedMatches = new ArrayList<>();
+            int[] current = matches.get(0);
+            
+            for (int i = 1; i < matches.size(); i++) {
+                int[] next = matches.get(i);
+                if (current[1] >= next[0]) {
+                    // Merge overlapping matches
+                    current[1] = Math.max(current[1], next[1]);
+                } else {
+                    mergedMatches.add(current);
+                    current = next;
+                }
             }
+            mergedMatches.add(current);
+            return mergedMatches;
         }
 
         return matches;
