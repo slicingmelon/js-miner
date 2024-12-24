@@ -70,7 +70,7 @@ public class SubDomains implements Runnable {
 
             // report the issue
             sendNewIssue(baseRequestResponse,
-                    "[JS Miner] Subdomains",
+                    "[JS Miner][legacy] Subdomains",
                     "The following subdomains were found in a static file.",
                     allMatchesSB.toString(),
                     allMatchesMarkers,

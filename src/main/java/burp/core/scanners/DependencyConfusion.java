@@ -127,7 +127,7 @@ public class DependencyConfusion implements Runnable {
         String findingDetail;
         String severity;
 
-        findingTitle = "[JS Miner] Dependencies";
+        findingTitle = "[JS Miner][legacy][legacy][legacy][legacy] Dependencies";
         findingDetail = "The following dependencies were found in a static file.";
         severity = SEVERITY_INFORMATION;
 
@@ -149,7 +149,7 @@ public class DependencyConfusion implements Runnable {
 
         // 1. if package version does not comply with NPM Semantic versioning, then report it as info for manual analysis
         if (!npmPackage.isVersionValidNPM()) {
-            findingTitle = "[JS Miner] Dependency (Non-NPM registry package)";
+            findingTitle = "[JS Miner][legacy][legacy][legacy][legacy] Dependency (Non-NPM registry package)";
             findingDetail = "The following non-NPM dependency was found in a static file. The version might contain a public repository URL, a private repository URL or a file path. Manual review is advised.";
             severity = SEVERITY_INFORMATION;
         } else if (npmPackage.getName().startsWith("@")) {
@@ -163,7 +163,7 @@ public class DependencyConfusion implements Runnable {
             if (httpRequestResponse.getResponse() != null
                     && helpers.analyzeResponse(httpRequestResponse.getResponse()).getStatusCode() == 404) {
                 // valid critical issue
-                findingTitle = "[JS Miner] Dependency (organization not found)";
+                findingTitle = "[JS Miner][legacy][legacy][legacy][legacy] Dependency (organization not found)";
                 findingDetail = "The following potentially exploitable dependency was found in a static file. The organization does not seem to be available, which indicates that it can be registered: " + url;
                 severity = SEVERITY_HIGH;
             }
@@ -176,7 +176,7 @@ public class DependencyConfusion implements Runnable {
             if (httpRequestResponse.getResponse() != null
                     && helpers.analyzeResponse(httpRequestResponse.getResponse()).getStatusCode() == 404) {
                 // valid critical issue
-                findingTitle = "[JS Miner] Dependency Confusion";
+                findingTitle = "[JS Miner][legacy][legacy][legacy][legacy] Dependency Confusion";
                 findingDetail = "The following potentially exploitable dependency was found in a static file. There was no entry for this package on the 'npm js' registry: " + url;
                 severity = SEVERITY_HIGH;
             }

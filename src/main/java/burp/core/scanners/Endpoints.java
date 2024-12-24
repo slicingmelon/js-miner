@@ -66,7 +66,7 @@ public class Endpoints implements Runnable {
 
             // report the issue
             sendNewIssue(baseRequestResponse,
-                    "[JS Miner] API Endpoints (" + method + ")",
+                    "[JS Miner][legacy] API Endpoints (" + method + ")",
                     "The following API endpoints were found in a static file.",
                     allMatchesSB.toString(),
                     allMatchesMarkers,

@@ -55,7 +55,7 @@ public class CloudURLs implements Runnable {
 
             // report the issue
             sendNewIssue(baseRequestResponse,
-                    "[JS Miner] Cloud Resources",
+                    "[JS Miner][legacy] Cloud Resources",
                     "The following cloud URLs were found in a static file.",
                     allMatchesSB.toString(),
                     allMatchesMarkers,
