@@ -20,8 +20,8 @@ import static burp.utils.Constants.*;
  * Class to build and run specific scans. It also feeds data to TaskRepository.
  */
 public class ScannerBuilder {
-    private static final String[] EXTENSION_JS = {"js"};
-    private static final String[] EXTENSION_JS_JSON = {"js", "json"};
+    private static final String[] EXTENSION_JS = {"js", "ts"};
+    private static final String[] EXTENSION_JS_JSON = {"js", "json", "ts"};
     private static final String[] EXTENSION_CSS = {"css"};
     private static final String[] EXTENSION_JS_JSON_CSS_MAP = {"js", "json", "css", "map"};
     private static final IBurpExtenderCallbacks callbacks = BurpExtender.getCallbacks();
