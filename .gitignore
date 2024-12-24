@@ -1,4 +1,5 @@
 build/
 .gradle/
 .vscode/
+burp-extensions-montoya-api-examples
 burp-extensions-montoya-api-examples/
