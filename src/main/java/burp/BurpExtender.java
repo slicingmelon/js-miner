@@ -14,7 +14,9 @@ import burp.config.ExecutorServiceManager;
 import burp.config.ExtensionConfig;
 import burp.core.TaskRepository;
 import burp.core.ScannerBuilder;
+import burp.utils.FileUtils;
 import burp.utils.Utilities;
+import burp.utils.SourceMapper;
 
 import javax.swing.*;
 import java.awt.*;
@@ -47,6 +49,8 @@ public class BurpExtender implements BurpExtension, ContextMenuItemsProvider {
         // Initialize components
         TaskRepository.setApi(api);
         Utilities.setApi(api);
+        FileUtils.setApi(api);
+        SourceMapper.setApi(api);
         
         // Register this class as the context menu provider
         api.userInterface().registerContextMenuItemsProvider(this);

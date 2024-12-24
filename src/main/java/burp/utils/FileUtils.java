@@ -16,6 +16,10 @@ public class FileUtils {
     }
 
     public static boolean saveFile(String sourceFilePath, byte[] data, Path outputDirPath) {
+        if (api == null) {
+            api = Utilities.getApi(); // Fallback to get API from Utilities if not set directly
+        }
+        
         Path filePath = Paths.get(sourceFilePath);
         String fileName = filePath.getFileName().toString();
         Utilities.createDirectoriesIfNotExist(getTempDirPath(outputDirPath));
@@ -28,11 +32,11 @@ public class FileUtils {
             trustedPath = Utilities.handleDuplicateFile(trustedPath);
             Files.move(tempFile, trustedPath);
             
-            if (!Utilities.isDirEmpty(outputDirPath)) {
-                return true;
-            }
+            return !Utilities.isDirEmpty(outputDirPath);
         } catch (IOException e) {
-            api.logging().logToError("Error saving file: " + e.getMessage());
+            if (api != null) {
+                api.logging().logToError("Error saving file: " + e.getMessage());
+            }
         }
         return false;
     }
@@ -55,10 +59,14 @@ public class FileUtils {
                 Utilities.createDirectoriesIfNotExist(trustedFile.getParentFile().toPath());
                 return trustedFile.toString();
             } else {
-                api.logging().logToError("Path traversal attempt prevented");
+                if (api != null) {
+                    api.logging().logToError("Path traversal attempt prevented");
+                }
             }
         } catch (IOException e) {
-            api.logging().logToError("Error securing file path: " + e.getMessage());
+            if (api != null) {
+                api.logging().logToError("Error securing file path: " + e.getMessage());
+            }
         }
         
         return getTempDirPath(outputDirPath).toString();

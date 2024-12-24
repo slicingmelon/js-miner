@@ -10,16 +10,22 @@ import java.nio.file.Path;
 import burp.utils.Utilities;
 
 public class SourceMapper {
-    private final MontoyaApi api;
+    private static MontoyaApi api;
     private final HttpRequestResponse requestResponse;
     private final String jsonMapFile;
     private final Path outputDirPath;
 
+    public static void setApi(MontoyaApi api) {
+        SourceMapper.api = api;
+    }
+
     public SourceMapper(HttpRequestResponse requestResponse, String jsonMapFile, Path outputDirPath) {
-        this.api = Utilities.getApi();
         this.requestResponse = requestResponse;
         this.jsonMapFile = jsonMapFile;
         this.outputDirPath = outputDirPath;
+        if (api == null) {
+            api = Utilities.getApi(); // Fallback to get API from Utilities if not set directly
+        }
         parseMapFile();
     }
 
@@ -28,12 +34,25 @@ public class SourceMapper {
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         try {
             JSMapFile mapFile = objectMapper.readValue(jsonMapFile, JSMapFile.class);
-            for (int i = 0; i <= mapFile.getSources().length - 1; i++) {
+            
+            if (mapFile.getSources() == null || mapFile.getSourcesContent() == null || 
+                mapFile.getSources().length != mapFile.getSourcesContent().length) {
+                api.logging().logToError("Invalid source map file structure");
+                return;
+            }
+
+            for (int i = 0; i < mapFile.getSources().length; i++) {
+                String source = mapFile.getSources()[i];
+                String content = mapFile.getSourcesContent()[i];
+                
+                if (source == null || content == null) {
+                    continue;
+                }
+
                 if (FileUtils.saveFile(
-                        mapFile.getSources()[i]
-                                .replaceAll("\\?.*", "")
-                                .replaceAll("[?%*|:\"<>~]", ""),
-                        mapFile.getSourcesContent()[i].getBytes(),
+                        source.replaceAll("\\?.*", "")
+                             .replaceAll("[?%*|:\"<>~]", "_"),
+                        content.getBytes(),
                         outputDirPath
                 )) {
                     sendJSMapperIssue();
